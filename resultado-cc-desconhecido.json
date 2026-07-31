@@ -1,0 +1,40 @@
+{
+  "colaborador": {
+    "id": "c-1103",
+    "nome": "Dani Okonkwo",
+    "centro_custo": "CC-SUPORTE-N2"
+  },
+  "competencia": "2026-07",
+  "periodo": {
+    "inicio": "2026-07-01",
+    "fim": "2026-07-31"
+  },
+  "categorias": {
+    "alimentacao": {
+      "total_despesas": 58.00,
+      "total_aceito": 58.00,
+      "total_reembolso": 58.00,
+      "reprovadas": []
+    },
+    "transporte_urbano": {
+      "total_despesas": 65.76,
+      "total_aceito": 65.76,
+      "total_reembolso": 65.76,
+      "reprovadas": []
+    },
+    "hospedagem": {
+      "total_despesas": 310.00,
+      "total_aceito": 310.00,
+      "total_reembolso": 250.00,
+      "reprovadas": []
+    }
+  },
+  "reprovadas_sem_categoria": [
+    {
+      "id": "f-003",
+      "categoria_informada": "representacao",
+      "motivo": "categoria não aplicável"
+    }
+  ],
+  "total_reembolso_geral": 373.76
+}

@@ -1,4 +1,4 @@
-"""Permite `python -m src --input ... --output ... [--em-viagem]` (DT-003)."""
+"""Permite `python -m src --input ... --output ... [--politica ...] [--cambio ...]` (DT-003)."""
 
 import sys
 

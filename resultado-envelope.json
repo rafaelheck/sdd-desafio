@@ -1,0 +1,56 @@
+{
+  "colaborador": {
+    "id": "c-0912",
+    "nome": "Rafael Nkemelu",
+    "centro_custo": "CC-COMERCIAL"
+  },
+  "competencia": "2026-07",
+  "periodo": {
+    "inicio": "2026-07-01",
+    "fim": "2026-07-31"
+  },
+  "categorias": {
+    "alimentacao": {
+      "total_despesas": 577.52,
+      "total_aceito": 577.52,
+      "total_reembolso": 528.72,
+      "reprovadas": []
+    },
+    "transporte_urbano": {
+      "total_despesas": 220.00,
+      "total_aceito": 0.00,
+      "total_reembolso": 0.00,
+      "reprovadas": [
+        {
+          "id": "e-005",
+          "motivo": "sem nota fiscal obrigatória"
+        }
+      ]
+    },
+    "hospedagem": {
+      "total_despesas": 1200.00,
+      "total_aceito": 1200.00,
+      "total_reembolso": 400.00,
+      "reprovadas": []
+    },
+    "representacao": {
+      "total_despesas": 340.00,
+      "total_aceito": 340.00,
+      "total_reembolso": 300.00,
+      "reprovadas": [
+        {
+          "id": "e-006",
+          "motivo": "cambio não identificado"
+        }
+      ]
+    }
+  },
+  "reprovadas_sem_categoria": [
+    {
+      "id": "e-009",
+      "categoria_informada": "coworking",
+      "motivo": "categoria não aplicável"
+    }
+  ],
+  "total_reembolso_geral": 1228.72
+}

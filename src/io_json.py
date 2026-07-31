@@ -1,8 +1,9 @@
-"""Casca de I/O: leitura da entrada e serializacao da saida (DT-001, DT-006).
+"""Casca de I/O: leitura das 3 fontes e serializacao da saida (DT-001/DT-006/DT-008).
 
-Le o JSON com `parse_float=Decimal` para nunca passar valores por `float`.
-Serializa a saida com acentos preservados (`ensure_ascii=False`), ordem de chaves
-fixa e todo valor monetario com exatamente 2 casas decimais.
+Le os JSON com `parse_float=Decimal` para nunca passar valores nem taxas por
+`float`. Serializa a saida com acentos preservados (`ensure_ascii=False`), ordem de
+chaves fixa e todo valor monetario com exatamente 2 casas decimais. A saida nao tem
+mais `em_viagem` e as categorias sao dinamicas (spec 1.4).
 """
 
 from __future__ import annotations
@@ -13,14 +14,21 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
-from src.modelo import Colaborador, Periodo, Resultado, ResultadoCategoria
-from src.politica import CASAS_DECIMAIS
-from src.regras import ORDEM_CATEGORIAS
+from src.modelo import (
+    Cambio,
+    Colaborador,
+    Periodo,
+    Politica,
+    Resultado,
+    ResultadoCategoria,
+    motivo_texto,
+)
+from src.politica import CASAS_DECIMAIS, cambio_de_dict, politica_de_dict
 
 
 class ErroEntrada(Exception):
     """Erro irrecuperavel de entrada (arquivo inexistente, JSON de topo invalido,
-    campos de topo ausentes) — aborta a execucao com codigo 1 (DT-006)."""
+    campos de topo ausentes) — aborta a execucao com codigo 1 (DT-006, RN-018)."""
 
 
 @dataclass
@@ -30,25 +38,29 @@ class Entrada:
     colaborador: Colaborador
     periodo: Periodo
     despesas_brutas: list
-    em_viagem: bool
 
 
 # --------------------------------------------------------------------------- #
 # Leitura
 # --------------------------------------------------------------------------- #
+def _carrega_json(caminho, rotulo: str) -> object:
+    """Abre e parseia um JSON com `parse_float=Decimal`; erros viram `ErroEntrada`."""
+    try:
+        with open(caminho, encoding="utf-8") as arquivo:
+            return json.load(arquivo, parse_float=Decimal)
+    except FileNotFoundError as erro:
+        raise ErroEntrada(f"{rotulo} nao encontrado: {caminho}") from erro
+    except json.JSONDecodeError as erro:
+        raise ErroEntrada(f"{rotulo} com JSON invalido: {erro}") from erro
+    except OSError as erro:
+        raise ErroEntrada(f"nao foi possivel ler {rotulo} ({caminho}): {erro}") from erro
+
+
 def ler_entrada(caminho) -> Entrada:
     """Le e valida a estrutura de topo do input. Levanta `ErroEntrada` em erro
     irrecuperavel. Registros de despesa individuais NAO sao validados aqui — isso
-    e responsabilidade do nucleo (RN-013)."""
-    try:
-        with open(caminho, encoding="utf-8") as arquivo:
-            dados = json.load(arquivo, parse_float=Decimal)
-    except FileNotFoundError as erro:
-        raise ErroEntrada(f"arquivo de entrada nao encontrado: {caminho}") from erro
-    except json.JSONDecodeError as erro:
-        raise ErroEntrada(f"JSON de entrada invalido: {erro}") from erro
-    except OSError as erro:
-        raise ErroEntrada(f"nao foi possivel ler {caminho}: {erro}") from erro
+    e responsabilidade do nucleo (RN-013). Nao ha mais campo de topo `em_viagem`."""
+    dados = _carrega_json(caminho, "arquivo de entrada")
 
     if not isinstance(dados, dict):
         raise ErroEntrada("JSON de topo deve ser um objeto")
@@ -60,11 +72,31 @@ def ler_entrada(caminho) -> Entrada:
     if not isinstance(despesas, list):
         raise ErroEntrada("campo 'despesas' ausente ou nao e uma lista")
 
-    em_viagem = dados.get("em_viagem", False)
-    if not isinstance(em_viagem, bool):
-        raise ErroEntrada("campo 'em_viagem' deve ser booleano")
+    return Entrada(colaborador, periodo, despesas)
 
-    return Entrada(colaborador, periodo, despesas, em_viagem)
+
+def ler_politica(caminho) -> Politica:
+    """RN-015 — le `politica-v4.json` e constroi a `Politica`. Aborta se ausente ou
+    inparseavel."""
+    dados = _carrega_json(caminho, "arquivo de politica")
+    if not isinstance(dados, dict):
+        raise ErroEntrada("politica: JSON de topo deve ser um objeto")
+    try:
+        return politica_de_dict(dados)
+    except (KeyError, TypeError, ValueError, ArithmeticError) as erro:
+        raise ErroEntrada(f"politica mal formada: {erro}") from erro
+
+
+def ler_cambio(caminho) -> Cambio:
+    """RN-018 — le `cambio.json` e constroi o `Cambio`. Aborta se ausente ou
+    inparseavel (sem o arquivo a `moeda_base` seria desconhecida)."""
+    dados = _carrega_json(caminho, "arquivo de cambio")
+    if not isinstance(dados, dict):
+        raise ErroEntrada("cambio: JSON de topo deve ser um objeto")
+    try:
+        return cambio_de_dict(dados)
+    except (KeyError, TypeError, ValueError, ArithmeticError, AttributeError) as erro:
+        raise ErroEntrada(f"cambio mal formado: {erro}") from erro
 
 
 def _le_colaborador(dados: dict) -> Colaborador:
@@ -143,15 +175,14 @@ def _para_dict(resultado: Resultado) -> dict:
             "inicio": resultado.periodo.inicio.isoformat(),
             "fim": resultado.periodo.fim.isoformat(),
         },
-        "em_viagem": resultado.em_viagem,
         "categorias": {
-            cat: _categoria_dict(resultado.categorias[cat]) for cat in ORDEM_CATEGORIAS
+            cat: _categoria_dict(rc) for cat, rc in resultado.categorias.items()
         },
         "reprovadas_sem_categoria": [
             {
                 "id": rep.id,
                 "categoria_informada": rep.categoria_informada,
-                "motivo": rep.motivo.value,
+                "motivo": motivo_texto(rep.motivo),
             }
             for rep in resultado.reprovadas_sem_categoria
         ],
@@ -165,6 +196,7 @@ def _categoria_dict(categoria: ResultadoCategoria) -> dict:
         "total_aceito": _quantiza(categoria.total_aceito),
         "total_reembolso": _quantiza(categoria.total_reembolso),
         "reprovadas": [
-            {"id": rep.id, "motivo": rep.motivo.value} for rep in categoria.reprovadas
+            {"id": rep.id, "motivo": motivo_texto(rep.motivo)}
+            for rep in categoria.reprovadas
         ],
     }

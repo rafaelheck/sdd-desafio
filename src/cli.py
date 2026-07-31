@@ -1,15 +1,23 @@
-"""Interface de linha de comando `calcular` (DT-003).
+"""Interface de linha de comando `calcular` (DT-003, DT-003b).
 
-Liga leitura -> pipeline -> escrita. Exit codes: 0 sucesso, 1 erro irrecuperavel
-de entrada, 2 erro de uso (padrao do argparse). Ver `contracts/cli-contract.md`.
+Liga leitura das 3 fontes (input, politica, cambio) -> pipeline -> escrita. Sem
+regra de negocio na CLI. Exit codes: 0 sucesso, 1 erro irrecuperavel de entrada
+(input/politica/cambio ausente ou inparseavel; topo invalido), 2 erro de uso
+(padrao do argparse). Ver `contracts/cli-contract.md`.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from src import calculo, io_json
+
+# Arquivos empacotados, resolvidos relativos ao pacote `src` (DT-003b).
+_INFO = Path(__file__).resolve().parent / "informacoes_externas"
+_POLITICA_PADRAO = _INFO / "politica-v4.json"
+_CAMBIO_PADRAO = _INFO / "cambio.json"
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -20,10 +28,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--input", required=True, help="arquivo JSON de entrada")
     parser.add_argument("--output", required=True, help="arquivo JSON de saida")
     parser.add_argument(
-        "--em-viagem",
-        action="store_true",
-        dest="em_viagem",
-        help="aplica limites ampliados em 50%% a todas as despesas do input (RN-009)",
+        "--politica",
+        default=str(_POLITICA_PADRAO),
+        help="politica externa de categorias/limites por centro de custo (RN-015)",
+    )
+    parser.add_argument(
+        "--cambio",
+        default=str(_CAMBIO_PADRAO),
+        help="tabela de cambio: moeda_base + taxas por data (RN-018)",
     )
     return parser
 
@@ -34,16 +46,18 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         entrada = io_json.ler_entrada(args.input)
+        politica = io_json.ler_politica(args.politica)
+        cambio = io_json.ler_cambio(args.cambio)
     except io_json.ErroEntrada as erro:
         print(f"erro: {erro}", file=sys.stderr)
         return 1
 
-    # A flag da CLI e a fonte de verdade de `em_viagem` (AMB-008).
     resultado = calculo.calcula(
         entrada.despesas_brutas,
         entrada.colaborador,
         entrada.periodo,
-        args.em_viagem,
+        politica,
+        cambio,
     )
     io_json.escrever_saida(resultado, args.output)
     return 0

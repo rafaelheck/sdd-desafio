@@ -1,4 +1,8 @@
-"""Golden test ponta a ponta contra a saida da Secao 4 da spec (T-022)."""
+"""Goldens ponta a ponta contra a spec 1.4 (T-048).
+
+Golden 1: `despesas-exemplo.json` (CC-ENG-PLATAFORMA, sem moeda) -> 351,43 (Secao 4).
+Golden 2: `despesas-envelope.json` (CC-COMERCIAL, EUR/USD/GBP) -> 1228,72 (quickstart).
+"""
 
 import json
 from decimal import Decimal
@@ -8,92 +12,100 @@ import pytest
 from src import io_json
 from src.calculo import calcula
 
-# Saida esperada exata da Secao 4 da spec (em_viagem = false).
-_ESPERADO_SEM_VIAGEM = """
+_GOLDEN_EXEMPLO = """
 {
-  "colaborador": {
-    "id": "c-0417",
-    "nome": "Marina Volpi",
-    "centro_custo": "CC-ENG-PLATAFORMA"
-  },
+  "colaborador": { "id": "c-0417", "nome": "Marina Volpi", "centro_custo": "CC-ENG-PLATAFORMA" },
   "competencia": "2026-07",
-  "periodo": {
-    "inicio": "2026-07-01",
-    "fim": "2026-07-31"
-  },
-  "em_viagem": false,
+  "periodo": { "inicio": "2026-07-01", "fim": "2026-07-31" },
   "categorias": {
     "alimentacao": {
-      "total_despesas": 402.83,
-      "total_aceito": 306.93,
-      "total_reembolso": 255.43,
+      "total_despesas": 402.83, "total_aceito": 306.93, "total_reembolso": 271.43,
       "reprovadas": [
         { "id": "d-007", "motivo": "registro duplicado" },
         { "id": "d-008", "motivo": "data fora da competência" }
       ]
     },
     "transporte_urbano": {
-      "total_despesas": 200.01,
-      "total_aceito": 100.00,
-      "total_reembolso": 80.00,
+      "total_despesas": 200.01, "total_aceito": 100.00, "total_reembolso": 80.00,
       "reprovadas": [
         { "id": "d-004", "motivo": "sem nota fiscal obrigatória" },
         { "id": "d-009", "motivo": "valor inválido" }
       ]
     },
     "hospedagem": {
-      "total_despesas": 1170.00,
-      "total_aceito": 480.00,
-      "total_reembolso": 250.00,
+      "total_despesas": 1170.00, "total_aceito": 0.00, "total_reembolso": 0.00,
       "reprovadas": [
-        { "id": "d-013", "motivo": "sem nota fiscal obrigatória" }
+        { "id": "d-010", "motivo": "nao reembolsavel" },
+        { "id": "d-013", "motivo": "nao reembolsavel" }
       ]
     }
   },
   "reprovadas_sem_categoria": [
     { "id": "d-005", "categoria_informada": "coworking", "motivo": "categoria não aplicável" }
   ],
-  "total_reembolso_geral": 585.43
+  "total_reembolso_geral": 351.43
+}
+"""
+
+_GOLDEN_ENVELOPE = """
+{
+  "colaborador": { "id": "c-0912", "nome": "Rafael Nkemelu", "centro_custo": "CC-COMERCIAL" },
+  "competencia": "2026-07",
+  "periodo": { "inicio": "2026-07-01", "fim": "2026-07-31" },
+  "categorias": {
+    "alimentacao": {
+      "total_despesas": 577.52, "total_aceito": 577.52, "total_reembolso": 528.72,
+      "reprovadas": []
+    },
+    "transporte_urbano": {
+      "total_despesas": 220.00, "total_aceito": 0.00, "total_reembolso": 0.00,
+      "reprovadas": [ { "id": "e-005", "motivo": "sem nota fiscal obrigatória" } ]
+    },
+    "hospedagem": {
+      "total_despesas": 1200.00, "total_aceito": 1200.00, "total_reembolso": 400.00,
+      "reprovadas": []
+    },
+    "representacao": {
+      "total_despesas": 340.00, "total_aceito": 340.00, "total_reembolso": 300.00,
+      "reprovadas": [ { "id": "e-006", "motivo": "cambio não identificado" } ]
+    }
+  },
+  "reprovadas_sem_categoria": [
+    { "id": "e-009", "categoria_informada": "coworking", "motivo": "categoria não aplicável" }
+  ],
+  "total_reembolso_geral": 1228.72
 }
 """
 
 
-def _produz(caminho, em_viagem):
+def _produz(caminho, politica, cambio):
     entrada = io_json.ler_entrada(caminho)
     resultado = calcula(
-        entrada.despesas_brutas, entrada.colaborador, entrada.periodo, em_viagem
+        entrada.despesas_brutas, entrada.colaborador, entrada.periodo, politica, cambio
     )
-    # Parse com Decimal dos dois lados para comparacao exata de centavos.
     return json.loads(io_json.serializa(resultado), parse_float=Decimal)
 
 
-def test_golden_sem_viagem(caminho_exemplo):
-    produzido = _produz(caminho_exemplo, em_viagem=False)
-    esperado = json.loads(_ESPERADO_SEM_VIAGEM, parse_float=Decimal)
+def test_golden_exemplo(caminho_exemplo, politica_v4, cambio_real):
+    produzido = _produz(caminho_exemplo, politica_v4, cambio_real)
+    esperado = json.loads(_GOLDEN_EXEMPLO, parse_float=Decimal)
     assert produzido == esperado
 
 
-def test_golden_invariante_por_categoria(caminho_exemplo):
-    produzido = _produz(caminho_exemplo, em_viagem=False)
+def test_golden_envelope(caminho_envelope, politica_v4, cambio_real):
+    produzido = _produz(caminho_envelope, politica_v4, cambio_real)
+    esperado = json.loads(_GOLDEN_ENVELOPE, parse_float=Decimal)
+    assert produzido == esperado
+
+
+@pytest.mark.parametrize("caminho", ["caminho_exemplo", "caminho_envelope"])
+def test_invariante_por_categoria(caminho, request, politica_v4, cambio_real):
+    produzido = _produz(request.getfixturevalue(caminho), politica_v4, cambio_real)
     for cat in produzido["categorias"].values():
         assert cat["total_despesas"] >= cat["total_aceito"] >= cat["total_reembolso"]
 
 
-def test_em_viagem_amplia_tetos_mas_nao_nf(caminho_exemplo):
-    produzido = _produz(caminho_exemplo, em_viagem=True)
-    cats = produzido["categorias"]
-    # Tetos ampliados (90/120/375):
-    assert cats["alimentacao"]["total_reembolso"] == Decimal("286.43")
-    assert cats["transporte_urbano"]["total_reembolso"] == Decimal("100.00")
-    assert cats["hospedagem"]["total_reembolso"] == Decimal("375.00")
-    assert produzido["total_reembolso_geral"] == Decimal("761.43")
-    # Limiar de NF NAO escala: d-004 e d-013 continuam recusados.
-    ids_recusados = {
-        r["id"] for c in cats.values() for r in c["reprovadas"]
-    } | {r["id"] for r in produzido["reprovadas_sem_categoria"]}
-    assert {"d-004", "d-013"} <= ids_recusados
-
-
-@pytest.mark.parametrize("em_viagem", [False, True])
-def test_determinismo(caminho_exemplo, em_viagem):
-    assert _produz(caminho_exemplo, em_viagem) == _produz(caminho_exemplo, em_viagem)
+def test_determinismo(caminho_envelope, politica_v4, cambio_real):
+    a = _produz(caminho_envelope, politica_v4, cambio_real)
+    b = _produz(caminho_envelope, politica_v4, cambio_real)
+    assert a == b

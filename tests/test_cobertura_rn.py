@@ -1,7 +1,8 @@
-"""Auditoria de rastreabilidade: toda RN-001..RN-014 tem teste (T-023).
+"""Auditoria de rastreabilidade: toda RN-001..RN-020 tem teste (T-047).
 
-Falha se alguma regra da spec nao possuir ao menos um teste nomeado pela
-convencao `test_rn_0NN_*` (CLAUDE.md: nenhuma regra sem teste).
+Falha se alguma regra da spec 1.4 nao possuir ao menos um teste nomeado pela
+convencao `test_rn_0NN_*` (CLAUDE.md: nenhuma regra sem teste). Um teste nomeado por
+outra RN NAO conta pela regra que cobre — a convencao e o numero literal no nome.
 """
 
 import re
@@ -20,6 +21,6 @@ def _rns_com_teste() -> set[int]:
 
 
 def test_todas_rns_tem_teste():
-    esperadas = set(range(1, 15))  # RN-001..RN-014
+    esperadas = set(range(1, 21))  # RN-001..RN-020
     faltando = sorted(esperadas - _rns_com_teste())
     assert not faltando, f"RNs sem teste correspondente: {faltando}"

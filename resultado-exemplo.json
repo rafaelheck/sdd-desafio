@@ -1,0 +1,67 @@
+{
+  "colaborador": {
+    "id": "c-0417",
+    "nome": "Marina Volpi",
+    "centro_custo": "CC-ENG-PLATAFORMA"
+  },
+  "competencia": "2026-07",
+  "periodo": {
+    "inicio": "2026-07-01",
+    "fim": "2026-07-31"
+  },
+  "categorias": {
+    "alimentacao": {
+      "total_despesas": 402.83,
+      "total_aceito": 306.93,
+      "total_reembolso": 271.43,
+      "reprovadas": [
+        {
+          "id": "d-007",
+          "motivo": "registro duplicado"
+        },
+        {
+          "id": "d-008",
+          "motivo": "data fora da competência"
+        }
+      ]
+    },
+    "transporte_urbano": {
+      "total_despesas": 200.01,
+      "total_aceito": 100.00,
+      "total_reembolso": 80.00,
+      "reprovadas": [
+        {
+          "id": "d-004",
+          "motivo": "sem nota fiscal obrigatória"
+        },
+        {
+          "id": "d-009",
+          "motivo": "valor inválido"
+        }
+      ]
+    },
+    "hospedagem": {
+      "total_despesas": 1170.00,
+      "total_aceito": 0.00,
+      "total_reembolso": 0.00,
+      "reprovadas": [
+        {
+          "id": "d-010",
+          "motivo": "nao reembolsavel"
+        },
+        {
+          "id": "d-013",
+          "motivo": "nao reembolsavel"
+        }
+      ]
+    }
+  },
+  "reprovadas_sem_categoria": [
+    {
+      "id": "d-005",
+      "categoria_informada": "coworking",
+      "motivo": "categoria não aplicável"
+    }
+  ],
+  "total_reembolso_geral": 351.43
+}
