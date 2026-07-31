@@ -1,8 +1,11 @@
 # Plano Técnico — Motor de Cálculo de Reembolso
 
-**Versão:** 1.4 · **Baseado na spec:** 1.4 (Clarifications 2026-07-30 e 2026-07-31;
-D-003..D-007). Substitui o plano 1.1, que assumia política embutida em código,
-categorias fixas e viagem por flag de CLI.
+**Versão:** 1.5 · **Baseado na spec:** 1.4 (Clarifications 2026-07-30 e 2026-07-31;
+D-003..D-007). O plano 1.5 ajusta apenas a *forma de invocação* da CLI — `calcular`
+passa a ser um **subcomando** do `argparse`, rodável por
+`python -m src.cli calcular --input ... --output ...`, sem tocar em regra de negócio.
+Substitui o plano 1.1, que assumia política embutida em código, categorias fixas e
+viagem por flag de CLI.
 
 > Aqui mora o COMO. Este arquivo pode e deve falar de linguagem, biblioteca e
 > arquitetura. O que ele **não** pode é introduzir regra de negócio nova — se
@@ -52,11 +55,11 @@ I/O** (CLI, leitura de 3 arquivos JSON, serialização). As duas fontes externas
 núcleo — o núcleo nunca abre arquivo.
 
 ```
-calcular --input despesas.json --output resultado.json
-         [--politica ...] [--cambio ...]
-        │
+python -m src.cli calcular --input despesas.json --output resultado.json
+                           [--politica ...] [--cambio ...]
+        │  (subcomando `calcular`; console script `calcular ...` chega aqui via wrapper)
         ▼
-   cli.py (argparse)                         ── casca de I/O
+   cli.py (argparse + subparser `calcular`)  ── casca de I/O
         │
         ▼
    io_json.py  ── lê input, politica-v4.json e cambio.json (parse_float=Decimal);
@@ -84,8 +87,8 @@ contato com o mundo (abrir os 3 arquivos, `print`, exit code) mora em `cli.py`/`
 ```
 src/
   __init__.py
-  __main__.py     # python -m src ... (dev)
-  cli.py          # argparse (SEM --em-viagem); resolve caminhos de política/câmbio; exit codes
+  __main__.py     # python -m src calcular ... (dev; delega a cli.main)
+  cli.py          # argparse c/ subcomando `calcular` (SEM --em-viagem); wrapper main_console; caminhos de política/câmbio; exit codes
   io_json.py      # ler_entrada / ler_politica / ler_cambio + serialização
   modelo.py       # dataclasses: Despesa, CategoriaConfig, Politica, Cambio, Reprovacao, ResultadoCategoria, Resultado; enum Motivo
   politica.py     # politica_de_dict / cambio_de_dict (dict→estrutura, puro); CASAS_DECIMAIS
@@ -144,17 +147,27 @@ Ambas viram estruturas puras construídas na casca e passadas ao núcleo:
 ## 5. Decisões técnicas
 
 Mantidas de 1.1: **DT-001** (dinheiro em `Decimal` desde o JSON), **DT-002** (regra em
-`regras.py`, uma função por RN), **DT-003** (CLI `argparse`, comando `calcular`),
-**DT-004** (pipeline explícito na ordem da Seção 8), **DT-005** (só stdlib no runtime),
+`regras.py`, uma função por RN), **DT-003** (CLI `argparse`; `calcular` agora como
+**subcomando** — ver DT-003b), **DT-004** (pipeline explícito na ordem da Seção 8), **DT-005** (só stdlib no runtime),
 **DT-006** (erro de topo aborta; registro malformado é recusa individual),
 **DT-007** (`total_despesas` exclui `valor ≤ 0`). Novas/alteradas:
 
-### DT-003b — CLI sem `--em-viagem`; caminhos de política/câmbio opcionais
-**Contexto:** viagem virou por-registro (RN-009); o motor precisa de dois arquivos externos.
-**Decisão:** remover `--em-viagem`. Manter `--input`/`--output` obrigatórios e adicionar
-`--politica`/`--cambio` opcionais (default: arquivos empacotados). Sem regra de negócio na CLI.
-**Consequência:** a assinatura de `CLAUDE.md` (`[--em-viagem]`) fica desatualizada; sinalizar
-para atualizar `CLAUDE.md`.
+### DT-003b — CLI: subcomando `calcular`, wrapper de console, sem `--em-viagem`, caminhos opcionais
+**Contexto:** viagem virou por-registro (RN-009); o motor precisa de dois arquivos externos;
+e a execução deve ser possível sem instalar, por `python -m src.cli calcular ...`.
+**Decisão:** `calcular` deixa de ser só o nome do console script e passa a ser um **subcomando**
+do `argparse` em `cli.py` (`add_subparsers(dest="comando", required=True)`). O subcomando carrega
+`--input`/`--output` (obrigatórios) e `--politica`/`--cambio` (opcionais, default: arquivos
+empacotados); `--em-viagem` continua removido. Sem regra de negócio na CLI. As três formas de
+execução são equivalentes e todas chamam `cli.main`:
+- `python -m src.cli calcular --input ... --output ...` — alvo do pedido; roda sem instalar;
+- `python -m src calcular --input ... --output ...` — `__main__.py` delega a `cli.main`;
+- `calcular --input ... --output ...` — console script instalado, preservado por um **wrapper**
+  `cli.main_console` que injeta o subcomando (`main(["calcular", *argv])`); a linha instalada
+  continua com uma só palavra. `pyproject` aponta `calcular = "src.cli:main_console"`.
+**Consequência:** a forma antiga `python -m src --input ...` (sem subcomando) deixa de valer — passa
+a exigir `calcular`. `CLAUDE.md` (que cita `python -m src --input ...` e a assinatura `[--em-viagem]`)
+fica desatualizado; sinalizar para atualizar. Contrato em [`contracts/cli-contract.md`](./contracts/cli-contract.md).
 
 ### DT-008 — Política e câmbio como dados injetados, não constantes
 **Contexto:** RN-015/018 externalizam política e câmbio; o núcleo deve permanecer puro.

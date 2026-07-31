@@ -317,6 +317,42 @@ saída correta para o exemplo oficial. Fases 3 e o restante da 4 endurecem e pro
 
 T-003 (constantes fixas) → T-029; T-004 (enum/modelo) → T-028; T-005/006 (normalização/estrutura) → T-035; T-007 (dedup) → T-038; T-008 (categoria) → T-032; T-011 (NF) → T-039; T-012/013/014 (tetos) → T-034; T-015/016 (agrega/pipeline) → T-040; T-018 (leitura) → T-030; T-019 (serialização) → T-041; T-020 (CLI) → T-042; T-022/027 (golden) → T-048; T-023 (cobertura) → T-047; T-024 (CLAUDE.md) → T-043. As demais (T-001/002/009/010/017/021/025/026) permanecem válidas ou têm seus testes reescritos por T-046.
 
+## Fase 11 — Invocação por subcomando `calcular` (plano 1.5, DT-003b)
+
+> Ajuste **só de forma de invocação**, sem regra de negócio nova (plano 1.5). `calcular`
+> passa a ser um **subcomando** do `argparse`, rodável por
+> `python -m src.cli calcular --input ... --output ...`; o console script instalado segue
+> com uma só palavra via wrapper `main_console`. Numeração continua de T-049; tasks antigas
+> não são renumeradas.
+
+- [x] **T-050** — `src/cli.py`: transformar `calcular` em **subcomando**. Trocar o parser plano por `add_subparsers(dest="comando", required=True)` com um subparser `calcular` que carrega `--input`/`--output` (obrigatórios) e `--politica`/`--cambio` (opcionais, defaults empacotados inalterados); `main(argv)` despacha quando `args.comando == "calcular"`. Adicionar `main_console(argv=None)` que injeta o subcomando (`main(["calcular", *(argv if argv is not None else sys.argv[1:])])`). Atualizar a docstring de exit codes (uso `2` também quando falta o subcomando). Supera a parte de forma de invocação de T-042 (mantém `--politica`/`--cambio`/abort).
+  - **Atende:** DT-003b, DT-003; `contracts/cli-contract.md`
+  - **Aceite:** `python -m src.cli calcular --input exemplos/despesas-exemplo.json --output out.json` gera a saída; faltar o subcomando → exit `2`
+  - **Commit:** `feat(T-050): calcular como subcomando do argparse (DT-003b)`
+
+- [x] **T-051** [P] — `pyproject.toml`: `[project.scripts]` passa a `calcular = "src.cli:main_console"` (era `src.cli:main`). Supera a parte de console script de T-001.
+  - **Atende:** DT-003b
+  - **Aceite:** após `pip install -e .`, `calcular --input ... --output ...` (uma palavra) funciona via wrapper
+  - **Commit:** `feat(T-051): console script aponta para main_console`
+
+- [x] **T-052** [P] — `src/__main__.py`: atualizar a docstring para `python -m src calcular ... [--politica ...] [--cambio ...]` (delega a `cli.main`); sem mudança de comportamento (o subcomando agora é obrigatório). Supera a docstring de T-021.
+  - **Atende:** DT-003b
+  - **Aceite:** `python -m src calcular --input ... --output ...` funciona; `python -m src --input ...` dá erro de uso (`2`)
+  - **Commit:** `docs(T-052): __main__ documenta subcomando calcular`
+
+- [x] **T-053** — `tests/test_cli.py`: cobrir as **três** formas equivalentes (`python -m src.cli calcular ...`, `python -m src calcular ...`, e o wrapper `main_console(["--input", ...])`) gerando a mesma saída, e o **erro de uso** (`main([])` / sem subcomando → `SystemExit(2)`). Atualizar/superar `::test_python_m_src` (T-021) e os asserts de CLI de T-042/T-049 que assumiam flags de topo sem subcomando.
+  - **Atende:** DT-003b; contrato da CLI (formas de invocação, exit `2`)
+  - **Aceite:** `pytest tests/test_cli.py` verde cobrindo as 3 formas + o exit `2`
+  - **Commit:** `test(T-053): tres formas de invocacao e exit 2 sem subcomando`
+
+- [x] **T-054** [P] — `CLAUDE.md`: na seção "Stack e comandos", trocar a linha de execução para o subcomando — `python -m src.cli calcular --input ... --output ... [--politica ...] [--cambio ...]` como forma primária, citando as equivalentes (`python -m src calcular ...`; console `calcular ...` via wrapper) e removendo `python -m src --input ...`. Supera a linha de execução de T-043.
+  - **Atende:** DT-003b; consistência com plano 1.5
+  - **Aceite:** `CLAUDE.md` não cita mais `python -m src --input ...`; descreve o subcomando `calcular`
+  - **Commit:** `docs(T-054): CLAUDE.md usa subcomando calcular`
+
+### Superadas pela Fase 11
+T-001 (console_scripts `= src.cli:main`) → T-051; T-020/T-042 (CLI com flags de topo, forma de invocação) → T-050 + T-053; T-021 (`__main__`, `python -m src ...`) → T-052; T-043 (linha de execução no `CLAUDE.md`) → T-054. As partes de T-042 sobre `--politica`/`--cambio` e abort permanecem válidas; não há RN nova (mudança só de invocação).
+
 ---
 
 ## Dependências e ordem
@@ -343,6 +379,10 @@ T-003 (constantes fixas) → T-029; T-004 (enum/modelo) → T-028; T-005/006 (no
     T-047 `[P]`; T-048 (goldens) depende de T-040..T-042; T-049 `[P]`.
   - **Ordem entre decisões:** D-005/D-006 (Fases 6–7) vêm antes de D-007 (Fase 8), pois a
     conversão e a viagem por moeda assentam sobre a política externa e o teto por periodicidade.
+- **Fase 11 (plano 1.5, subcomando `calcular`):** T-050 (`cli.py`) primeiro; T-051 (`pyproject`),
+  T-052 (`__main__` docstring) e T-054 (`CLAUDE.md`) são `[P]` entre si; T-053 (testes) depende de
+  T-050 (e de T-051 para exercitar a forma instalada). Não bloqueia nem é bloqueada pelas Fases 6–10
+  (código de regra já pronto).
 
 ## Exemplos de paralelização
 
@@ -353,6 +393,7 @@ T-003 (constantes fixas) → T-029; T-004 (enum/modelo) → T-028; T-005/006 (no
 - Fases 6–10 — Rodada A: **T-028, T-029** juntos. Rodada B (testes novos, TDD):
   **T-044, T-045, T-047** podem ser escritos antes das funções. Fechamento: **T-043,
   T-049** em paralelo com T-048.
+- Fase 11 — após T-050: **T-051, T-052, T-054** em paralelo; T-053 fecha validando as três formas.
 
 ---
 

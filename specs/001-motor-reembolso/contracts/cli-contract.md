@@ -3,19 +3,25 @@
 Interface pública do sistema (spec 1.4). Único ponto de contato com o usuário.
 Mudanças desde 1.1: **removido `--em-viagem`** (viagem é por registro, RN-009);
 **adicionados** `--politica`/`--cambio` (opcionais); a saída **não** tem mais `em_viagem`;
-o câmbio ausente/inválido **aborta**.
+o câmbio ausente/inválido **aborta**; **`calcular` é um subcomando do `argparse`** (plano 1.5).
 
 ## Invocação
 
-```
-calcular --input <arquivo.json> --output <arquivo.json> [--politica <arquivo.json>] [--cambio <arquivo.json>]
-```
-
-Em desenvolvimento (sem instalar o console script):
+`calcular` é um **subcomando** do `argparse`. Formas equivalentes (todas chamam `cli.main`):
 
 ```
-python -m src --input <arquivo.json> --output <arquivo.json> [--politica ...] [--cambio ...]
+# sem instalar, direto do repositório (forma primária)
+python -m src.cli calcular --input <arquivo.json> --output <arquivo.json> [--politica <arquivo.json>] [--cambio <arquivo.json>]
+
+# equivalente via pacote
+python -m src calcular --input <arquivo.json> --output <arquivo.json> [--politica ...] [--cambio ...]
+
+# console script instalado (pip install -e .) — o wrapper injeta o subcomando, então fica com uma só palavra
+calcular --input <arquivo.json> --output <arquivo.json> [--politica ...] [--cambio ...]
 ```
+
+> A forma antiga sem subcomando (`python -m src --input ...`) **não** vale mais: o subcomando
+> `calcular` é obrigatório. Faltar o subcomando é erro de uso do `argparse` (código `2`).
 
 ## Argumentos
 
@@ -71,7 +77,7 @@ JSON conforme os exemplos das Seções 4 da spec. Contrato resumido (categorias 
 | Código | Situação |
 |---|---|
 | `0` | Sucesso: resultado escrito em `--output` (mesmo com despesas reprovadas) |
-| `2` | Erro de uso: argumento obrigatório ausente/inválido (padrão do `argparse`) |
+| `2` | Erro de uso: subcomando `calcular` ausente ou argumento obrigatório ausente/inválido (padrão do `argparse`) |
 | `1` | Erro irrecuperável: `--input`, `--politica` ou `--cambio` inexistente ou com JSON inparseável; JSON de topo do input inválido; ou campos de topo obrigatórios ausentes (RN-013, RN-018). Mensagem em `stderr`, nada escrito em `--output` |
 
 - Registro de despesa malformado **não** aborta: vira `registro inválido` em `reprovadas_sem_categoria`,

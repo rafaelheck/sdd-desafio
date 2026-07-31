@@ -19,20 +19,26 @@ pip install -e ".[dev]"   # instala o pacote + pytest; cria o comando `calcular`
 
 ## Rodar
 
+`calcular` é um **subcomando** do `argparse`; as três formas abaixo são equivalentes.
+
 ```bash
+# sem instalar, direto do repositório (forma primária)
+python -m src.cli calcular --input exemplos/despesas-exemplo.json --output resultado.json
+
+# equivalente via pacote
+python -m src calcular --input exemplos/despesas-exemplo.json --output resultado.json
+
 # console script instalado (usa política/câmbio empacotados em src/informacoes_externas/)
 calcular --input exemplos/despesas-exemplo.json --output resultado.json
 
-# sem instalar, direto do repositório
-python -m src --input exemplos/despesas-exemplo.json --output resultado.json
-
 # input com moedas estrangeiras (converte via cambio.json; viagem por registro)
-calcular --input exemplos/despesas-envelope.json --output resultado.json
+python -m src.cli calcular --input exemplos/despesas-envelope.json --output resultado.json
 
 # apontando política/câmbio alternativos
-calcular --input in.json --output out.json --politica outra-politica.json --cambio outro-cambio.json
+python -m src.cli calcular --input in.json --output out.json --politica outra-politica.json --cambio outro-cambio.json
 ```
 
+> `calcular` é obrigatório: `python -m src --input ...` (sem o subcomando) não vale mais.
 > Não há mais `--em-viagem`: viagem é derivada por registro (moeda ≠ base, RN-009).
 
 ## Validação ponta a ponta (aceite)
@@ -102,6 +108,6 @@ garante que toda `RN-001..RN-020` tem cobertura.
 | Cenário | Resultado |
 |---|---|
 | `--input`/`--politica`/`--cambio` inexistente ou JSON inparseável | mensagem em `stderr`, código `1`, nada escrito |
-| Falta `--input` ou `--output` | erro de uso do `argparse`, código `2` |
+| Falta o subcomando `calcular`, ou falta `--input`/`--output` | erro de uso do `argparse`, código `2` |
 | Registro de despesa malformado (ex.: `moeda` numérica) | `registro inválido`; os demais processados; código `0` |
 | `moeda` sem taxa em todo o câmbio (ex.: GBP) | `cambio não identificado` **por registro**; código `0` |

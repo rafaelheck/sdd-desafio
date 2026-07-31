@@ -25,10 +25,12 @@ mudou); R-006..R-011 cobrem política externa e câmbio.
 
 ## R-003 — Interface de linha de comando
 
-- **Decisão:** `argparse`, comando único `calcular`; console script `calcular = src.cli:main`.
+- **Decisão:** `argparse` com **subcomando** `calcular` (`python -m src.cli calcular ...`); console
+  script `calcular = src.cli:main_console`, um wrapper que injeta o subcomando para a linha
+  instalada seguir com uma só palavra (`calcular --input ...`). Ver DT-003b no plano.
 - **Atualização 1.4:** remove `--em-viagem` (viagem virou por-registro, RN-009); adiciona
   `--politica`/`--cambio` opcionais (default: arquivos empacotados em `src/informacoes_externas`).
-  Ver R-009. `CLAUDE.md` (que ainda cita `--em-viagem`) precisa ser atualizado.
+  Ver R-009. `CLAUDE.md` (que ainda cita `--em-viagem` e `python -m src --input ...`) precisa ser atualizado.
 - **Alternativas:** `click`/`typer` — dependência desnecessária.
 
 ## R-004 — Serialização determinística da saída

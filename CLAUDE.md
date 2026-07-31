@@ -35,8 +35,10 @@ Se o que eu pedi não está coberto por nenhuma task, me avise em vez de impleme
 ## Stack e comandos
 
 - Linguagem: Python 3.13 (somente stdlib em runtime; sem dependências externas)
-- Rodar: `calcular --input despesas.json --output resultado.json [--politica p.json] [--cambio c.json]`
-  (em dev, sem instalar: `python -m src --input ... --output ...`). Sem `--politica`/`--cambio`,
+- Rodar (dev, sem instalar): `python -m src.cli calcular --input despesas.json --output resultado.json [--politica p.json] [--cambio c.json]`
+  — `calcular` é um **subcomando** do argparse. Equivalentes: `python -m src calcular ...` e, se
+  instalado, o console script `calcular --input ... --output ...` (wrapper injeta o subcomando).
+  A forma antiga `python -m src --input ...` (sem o subcomando) não vale mais. Sem `--politica`/`--cambio`,
   usa a política e o câmbio empacotados em `src/informacoes_externas/`. Não há mais `--em-viagem`:
   viagem é derivada por registro (moeda ≠ base, RN-009).
 - Instalar (dev): `pip install -e ".[dev]"` (cria o comando `calcular` e instala `pytest`)
