@@ -35,8 +35,10 @@ Se o que eu pedi não está coberto por nenhuma task, me avise em vez de impleme
 ## Stack e comandos
 
 - Linguagem: Python 3.13 (somente stdlib em runtime; sem dependências externas)
-- Rodar: `calcular --input despesas.json --output resultado.json [--em-viagem]`
-  (em dev, sem instalar: `python -m src --input ... --output ... [--em-viagem]`)
+- Rodar: `calcular --input despesas.json --output resultado.json [--politica p.json] [--cambio c.json]`
+  (em dev, sem instalar: `python -m src --input ... --output ...`). Sem `--politica`/`--cambio`,
+  usa a política e o câmbio empacotados em `src/informacoes_externas/`. Não há mais `--em-viagem`:
+  viagem é derivada por registro (moeda ≠ base, RN-009).
 - Instalar (dev): `pip install -e ".[dev]"` (cria o comando `calcular` e instala `pytest`)
 - Testes: `pytest`
 - Lint/format: não há ferramenta configurada; siga PEP 8
@@ -56,5 +58,6 @@ Se o que eu pedi não está coberto por nenhuma task, me avise em vez de impleme
 
 - Sem estornos, créditos ou saldos negativos; reembolso é sempre ≥ 0.
 - Não valida autenticidade de nota fiscal (confia em `tem_nota_fiscal`).
-- Sem conversão de moeda (tudo em BRL) e sem regra de calendário (dia útil/feriado).
+- Converte moeda via `cambio.json` (RN-018..RN-020); a `moeda_base` é a do câmbio e não se
+  buscam cotações fora do arquivo. Sem regra de calendário (dia útil/feriado).
 - Não persiste dados nem expõe interface além de ler um input e emitir um output.
