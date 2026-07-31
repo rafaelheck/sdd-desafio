@@ -33,7 +33,7 @@ _ESPERADO_SEM_VIAGEM = """
       ]
     },
     "transporte_urbano": {
-      "total_despesas": 155.01,
+      "total_despesas": 200.01,
       "total_aceito": 100.00,
       "total_reembolso": 80.00,
       "reprovadas": [

@@ -162,17 +162,17 @@ saída correta para o exemplo oficial. Fases 3 e o restante da 4 endurecem e pro
 > inválido" e listado em `reprovadas`). Ver RN-014, DT-007. Numeração continua de
 > T-024; as tasks antigas não são renumeradas.
 
-- [ ] **T-025** — Alterar `agrega_categoria()` em `src/regras.py`: excluir de `total_despesas` toda despesa com `valor ≤ 0`, independentemente do motivo da recusa (exclusão **por valor**, não por motivo); `total_aceito` e `total_reembolso` inalterados. Revisa T-015.
+- [x] **T-025** — Alterar `agrega_categoria()` em `src/regras.py`: excluir de `total_despesas` toda despesa com `valor ≤ 0`, independentemente do motivo da recusa (exclusão **por valor**, não por motivo); `total_aceito` e `total_reembolso` inalterados. Revisa T-015.
   - **Atende:** RN-014 (revista), D-004, DT-007
   - **Aceite:** `tests/test_regras.py::test_rn_014_total_despesas` passa a esperar `transporte_urbano` 100,00 + 100,01 = **200,01**; a invariante `total_despesas ≥ total_aceito ≥ total_reembolso` continua válida
   - **Commit:** `feat(T-025): total_despesas exclui valores <= 0 (D-004)`
 
-- [ ] **T-026** [P] — Atualizar e estender os testes de RN-014 em `tests/test_regras.py`: ajustar `test_rn_014_total_despesas` para 200,01 e adicionar `test_rn_014_exclui_valor_nao_positivo`, provando que uma despesa com `valor ≤ 0` recusada por um gate **anterior** ao de valor (ex.: duplicata ou fora da competência com valor negativo) também fica fora de `total_despesas` — exclusão por valor, não por motivo
+- [x] **T-026** [P] — Atualizar e estender os testes de RN-014 em `tests/test_regras.py`: ajustar `test_rn_014_total_despesas` para 200,01 e adicionar `test_rn_014_exclui_valor_nao_positivo`, provando que uma despesa com `valor ≤ 0` recusada por um gate **anterior** ao de valor (ex.: duplicata ou fora da competência com valor negativo) também fica fora de `total_despesas` — exclusão por valor, não por motivo
   - **Atende:** RN-014, D-004 (Clarifications 2026-07-30, opção A)
   - **Aceite:** ambos os testes passam; o novo caso falharia sob a leitura "exclusão por motivo"
   - **Commit:** `test(T-026): exclusao por valor em total_despesas`
 
-- [ ] **T-027** — Atualizar o golden em `tests/test_integracao.py`: `transporte_urbano.total_despesas == 200.01`; confirmar que `total_reembolso_geral` permanece `585.43` e as demais categorias (`alimentacao` 402.83, `hospedagem` 1170.00) não mudam. Revisa T-022
+- [x] **T-027** — Atualizar o golden em `tests/test_integracao.py`: `transporte_urbano.total_despesas == 200.01`; confirmar que `total_reembolso_geral` permanece `585.43` e as demais categorias (`alimentacao` 402.83, `hospedagem` 1170.00) não mudam. Revisa T-022
   - **Atende:** RN-014, D-004; revisa T-022
   - **Aceite:** `pytest tests/test_integracao.py` passa contra a saída atualizada da Seção 4 da spec
   - **Commit:** `test(T-027): golden com transporte_urbano 200,01 (D-004)`

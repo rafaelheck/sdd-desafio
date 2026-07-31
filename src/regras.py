@@ -195,10 +195,16 @@ def agrega_categoria(
     total_reembolso: Decimal,
 ) -> ResultadoCategoria:
     """RN-012/RN-014 — calcula `total_aceito` (aceitas), `total_despesas`
-    (aceitas + reprovadas da categoria) e monta a lista de reprovadas.
-    Vale a invariante `total_despesas >= total_aceito >= total_reembolso`."""
+    (aceitas + reprovadas da categoria, EXCETO valores <= 0) e monta a lista de
+    reprovadas. Vale a invariante `total_despesas >= total_aceito >= total_reembolso`.
+
+    RN-014/D-004: `total_despesas` exclui despesas com `valor <= 0` — exclusao
+    POR VALOR, nao pelo motivo da recusa (Clarifications 2026-07-30, opcao A).
+    Aceitas ja tem `valor > 0` (passaram no gate RN-010); o filtro incide sobre as
+    reprovadas, para que uma negativa recusada por qualquer gate (duplicidade,
+    periodo, NF ou valor) nunca entre na somatoria."""
     total_aceito = sum((d.valor for d in aceitas), Decimal("0"))
-    total_reprovadas = sum((d.valor for d, _ in reprovadas), Decimal("0"))
+    total_reprovadas = sum((d.valor for d, _ in reprovadas if d.valor > 0), Decimal("0"))
     total_despesas = total_aceito + total_reprovadas
     return ResultadoCategoria(
         total_despesas=total_despesas,

@@ -189,14 +189,32 @@ def test_rn_005_reembolso_parcial_mantem_aceito_cheio():
 # RN-014 / RN-012 — agregacao (T-015)
 # --------------------------------------------------------------------------- #
 def test_rn_014_total_despesas():
+    # RN-014/D-004: total_despesas soma aceitas + reprovadas, mas exclui valores
+    # <= 0. O estorno d-009 (-45,00) NAO entra: 100,00 + 100,01 = 200,01.
     aceitas = [despesa(id="d-003", valor=Decimal("100.00"))]
     reprovadas = [
         (despesa(id="d-004", valor=Decimal("100.01")), Motivo.SEM_NOTA_FISCAL),
         (despesa(id="d-009", valor=Decimal("-45.00")), Motivo.VALOR_INVALIDO),
     ]
     rc = regras.agrega_categoria(aceitas, reprovadas, Decimal("80.00"))
-    assert rc.total_despesas == Decimal("155.01")
+    assert rc.total_despesas == Decimal("200.01")
     assert rc.total_aceito == Decimal("100.00")
+
+
+def test_rn_014_exclui_valor_nao_positivo():
+    # D-004 (opcao A): a exclusao e POR VALOR, nao pelo motivo. Uma despesa
+    # negativa recusada por um gate anterior ao de valor (ex.: duplicidade)
+    # tambem fica fora de total_despesas.
+    aceitas = [despesa(valor=Decimal("50.00"))]
+    reprovadas = [
+        (despesa(valor=Decimal("-10.00")), Motivo.REGISTRO_DUPLICADO),
+        (despesa(valor=Decimal("0.00")), Motivo.DATA_FORA_COMPETENCIA),
+        (despesa(valor=Decimal("30.00")), Motivo.SEM_NOTA_FISCAL),
+    ]
+    rc = regras.agrega_categoria(aceitas, reprovadas, Decimal("50.00"))
+    # 50,00 (aceita) + 30,00 (reprovada positiva); -10,00 e 0,00 excluidos.
+    assert rc.total_despesas == Decimal("80.00")
+    assert rc.total_aceito == Decimal("50.00")
 
 
 def test_invariante_totais():
