@@ -70,8 +70,14 @@ viagem (ver AMB-008). Campos e significado:
 
 | Campo | Tipo | Significado |
 |---|---|---|
+| `colaborador.id` | texto | Identificador do colaborador (eco do input) |
+| `colaborador.nome` | texto | Nome do colaborador (eco do input) |
+| `colaborador.centro_custo` | texto | Centro de custo (eco do input) |
 | `competencia` | texto | Competência processada (eco do input) |
+| `periodo.inicio` | data `YYYY-MM-DD` | Primeiro dia elegível (eco do input) |
+| `periodo.fim` | data `YYYY-MM-DD` | Último dia elegível (eco do input) |
 | `em_viagem` | booleano | Indicador de viagem aplicado |
+| `categorias.<cat>.total_despesas` | número | Soma do `valor` de **todas** as despesas da categoria, aceitas **e** reprovadas (após arredondamento). Vale a invariante `total_despesas ≥ total_aceito ≥ total_reembolso`. Ver AMB-012 |
 | `categorias.<cat>.total_aceito` | número | Soma do `valor` das despesas **aceitas** da categoria (após arredondamento) |
 | `categorias.<cat>.total_reembolso` | número | Soma efetivamente reembolsável da categoria (após aplicação de tetos) |
 | `categorias.<cat>.reprovadas[]` | lista | Despesas recusadas cuja categoria declarada é essa categoria válida, cada uma com `id` e `motivo` |
@@ -82,10 +88,20 @@ Exemplo de saída (para o input de `exemplos/despesas-exemplo.json`, `em_viagem 
 
 ```json
 {
+  "colaborador": {
+    "id": "c-0417",
+    "nome": "Marina Volpi",
+    "centro_custo": "CC-ENG-PLATAFORMA"
+  },
   "competencia": "2026-07",
+  "periodo": {
+    "inicio": "2026-07-01",
+    "fim": "2026-07-31"
+  },
   "em_viagem": false,
   "categorias": {
     "alimentacao": {
+      "total_despesas": 402.83,
       "total_aceito": 306.93,
       "total_reembolso": 255.43,
       "reprovadas": [
@@ -94,6 +110,7 @@ Exemplo de saída (para o input de `exemplos/despesas-exemplo.json`, `em_viagem 
       ]
     },
     "transporte_urbano": {
+      "total_despesas": 155.01,
       "total_aceito": 100.00,
       "total_reembolso": 80.00,
       "reprovadas": [
@@ -102,6 +119,7 @@ Exemplo de saída (para o input de `exemplos/despesas-exemplo.json`, `em_viagem 
       ]
     },
     "hospedagem": {
+      "total_despesas": 1170.00,
       "total_aceito": 480.00,
       "total_reembolso": 250.00,
       "reprovadas": [
@@ -115,6 +133,13 @@ Exemplo de saída (para o input de `exemplos/despesas-exemplo.json`, `em_viagem 
   "total_reembolso_geral": 585.43
 }
 ```
+
+> **Nota sobre `total_despesas`:** inclui o `valor` de despesas reprovadas por
+> duplicidade, fora da competência, sem nota fiscal e valor inválido — desde que
+> a categoria declarada seja uma categoria válida. Despesas de categoria não
+> aplicável e registros estruturalmente inválidos **não** entram (vão para
+> `reprovadas_sem_categoria`). Por isso, em `transporte_urbano`, o estorno
+> `d-009` (−45,00) reduz o total: 100,00 + 100,01 − 45,00 = 155,01.
 
 ---
 
@@ -215,12 +240,26 @@ aborta com erro e nada é reembolsado.
 despesas do input continuam sendo avaliadas.
 
 ### RN-012 — Agregação por categoria
-**Regra:** Para cada categoria válida o sistema reporta: `total_aceito` (soma do
-`valor` das despesas aceitas), `total_reembolso` (soma reembolsável após tetos) e
-a lista de despesas recusadas daquela categoria com motivo. Recusas por categoria
-não aplicável vão para `reprovadas_sem_categoria` (ver AMB-011).
+**Regra:** A saída ecoa os dados de identificação do input — `colaborador` (`id`,
+`nome`, `centro_custo`), `competencia` e `periodo` (`inicio`, `fim`). Para cada
+categoria válida o sistema reporta: `total_despesas` (soma do `valor` de todas as
+despesas da categoria, aceitas e reprovadas — ver RN-014), `total_aceito` (soma
+do `valor` das despesas aceitas), `total_reembolso` (soma reembolsável após tetos)
+e a lista de despesas recusadas daquela categoria com motivo. Recusas por
+categoria não aplicável vão para `reprovadas_sem_categoria` (ver AMB-011).
 **Origem:** requisito de saída do desafio.
 **Aceite:** ver exemplo da Seção 4.
+
+### RN-014 — Total de despesas por categoria
+**Regra:** `total_despesas` de uma categoria é a soma do `valor` (já arredondado)
+de **todas** as despesas cuja categoria normalizada é aquela — aceitas e
+reprovadas (duplicidade, fora da competência, sem nota fiscal, valor inválido).
+Despesas de categoria não aplicável e registros estruturalmente inválidos não
+entram (não pertencem a categoria válida). Vale sempre
+`total_despesas ≥ total_aceito ≥ total_reembolso` (ver AMB-012).
+**Origem:** requisito de saída (esclarecimento do usuário, 2026-07-30).
+**Aceite:** em `transporte_urbano` do exemplo: 100,00 + 100,01 − 45,00 = 155,01,
+com `total_aceito` 100,00.
 
 ---
 
@@ -307,6 +346,14 @@ não aplicável vão para `reprovadas_sem_categoria` (ver AMB-011).
 **Justificativa:** manter a saída por categoria válida coerente, sem inventar uma categoria "outras" reembolsável.
 **Regra afetada:** RN-012.
 
+### AMB-012 — `total_despesas`: valor monetário ou contagem?
+**Texto original do usuário:** "inclua total_despesas, sendo o total de despesas incluindo aceitas e reprovadas".
+**O que não está claro:** "total de despesas" pode ser a quantidade (contagem) de despesas ou a soma monetária dos valores.
+**Decisão:** é a **soma monetária** do `valor` das despesas da categoria (aceitas + reprovadas).
+**Justificativa:** o campo fica ao lado de `total_aceito`/`total_reembolso` (ambos monetários) e segue o mesmo padrão `total_*`; como dinheiro, dá a invariante útil `total_despesas ≥ total_aceito ≥ total_reembolso` ("do gasto total, quanto foi aceito e quanto reembolsado").
+**Alternativa considerada:** contagem de despesas — descartada por quebrar a consistência de unidade com os campos vizinhos (seria melhor nomeada `quantidade_despesas`).
+**Regra afetada:** RN-012, RN-014.
+
 ---
 
 ## 7. Casos de borda
@@ -357,7 +404,12 @@ O sistema está pronto quando:
 - [ ] Para o input de `exemplos/despesas-exemplo.json` com `em_viagem = false`, a
       saída é exatamente a do exemplo da Seção 4 (totais e recusas por categoria,
       `total_reembolso_geral = 585,43`).
-- [ ] Cada uma das 11 regras (RN-001..RN-012) tem ao menos um teste com números.
+- [ ] Cada uma das 14 regras (RN-001..RN-014) tem ao menos um teste com números.
+- [ ] A saída ecoa `colaborador` (`id`, `nome`, `centro_custo`) e `periodo`
+      (`inicio`, `fim`) do input.
+- [ ] Em toda categoria vale `total_despesas ≥ total_aceito ≥ total_reembolso`, e
+      `total_despesas` inclui o `valor` das despesas reprovadas da categoria
+      (ex.: `transporte_urbano` = 155,01).
 - [ ] Cada despesa recusada traz um dos motivos: "categoria não aplicável",
       "data fora da competência", "registro duplicado", "sem nota fiscal
       obrigatória", "valor inválido", "registro inválido".
