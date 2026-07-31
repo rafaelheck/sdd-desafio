@@ -1,6 +1,6 @@
 # Plano Técnico — Motor de Cálculo de Reembolso
 
-**Versão:** 1.0 · **Baseado na spec:** 1.0 (inclui Clarifications 2026-07-30 e D-003)
+**Versão:** 1.1 · **Baseado na spec:** 1.1 (inclui Clarifications 2026-07-30, D-003 e D-004)
 
 > Aqui mora o COMO. Este arquivo pode e deve falar de linguagem, biblioteca e
 > arquitetura. O que ele **não** pode é introduzir regra de negócio nova — se
@@ -154,6 +154,12 @@ deploy, este é o único ponto a externalizar.
 **Contexto:** RN-013 — registro malformado é recusado individualmente; JSON de topo inválido aborta.
 **Decisão:** registro malformado vira `Reprovacao("registro inválido")` em `reprovadas_sem_categoria`. Erros de topo (JSON inparseável, arquivo de entrada inexistente, campos de topo ausentes) escrevem mensagem em `stderr` e saem com código ≠ 0 (sucesso = 0). Códigos detalhados no contrato da CLI.
 **Consequência:** fácil: lote resiliente + falha clara para erro irrecuperável. Difícil: exige distinguir erro estrutural de registro vs. erro de topo.
+
+### DT-007 — `total_despesas` exclui valores ≤ 0 (exclusão por valor)
+**Contexto:** RN-014 revista em D-004 — `total_despesas` soma o `valor` das despesas de categoria válida (aceitas + reprovadas), **exceto** as com `valor ≤ 0`; a exclusão é **por valor, não pelo motivo da recusa** (Clarifications 2026-07-30, opção A).
+**Decisão:** a função de agregação em `regras.py` que compõe `total_despesas` filtra `despesa.valor > 0` antes de acumular, independentemente de a despesa ter sido aceita ou recusada e de qual gate a recusou (duplicidade/período/NF/valor). Como a normalização arredonda antes (RN-011), o teste `> 0` usa o `Decimal` já `quantize`ado.
+**Alternativa descartada:** excluir apenas as recusadas com motivo "valor inválido" (exclusão por motivo) — diverge da opção A para o caso raro de uma despesa negativa recusada antes do gate de valor (ex.: duplicata negativa).
+**Consequência:** no exemplo, `transporte_urbano.total_despesas` passa de 155,01 para **200,01** (o estorno `d-009`, −45,00, sai da somatória; segue recusado como "valor inválido" e listado em `reprovadas`). A invariante `total_despesas ≥ total_aceito ≥ total_reembolso` continua válida (fica mais folgada).
 
 ## 6. Estratégia de testes
 

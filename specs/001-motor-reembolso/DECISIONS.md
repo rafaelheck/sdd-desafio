@@ -10,6 +10,48 @@ Ordem cronológica inversa: a mais recente primeiro.
 
 ---
 
+## D-004 — `total_despesas` ignora valores ≤ 0 na somatória · `2026-07-30`
+
+**Gatilho:** pedido do usuário via `/speckit-specify`: "para o parâmetro
+`total_despesas`, para a somatória não considere valores abaixo ou igual a zero".
+
+**O que mudou na spec:**
+- **RN-014**: `total_despesas` passa a **excluir da somatória qualquer valor ≤ 0**
+  (estornos / despesas com "valor inválido"). Antes somava todas as despesas da
+  categoria — aceitas e reprovadas, inclusive o −45,00 de `d-009`.
+- Seção 4 (tabela de saída, nota sobre `total_despesas` e exemplo JSON):
+  `transporte_urbano.total_despesas` passa de **155,01 → 200,01**; a nota foi
+  reescrita para dizer que `d-009` (−45,00) **não** entra: 100,00 + 100,01 = 200,01.
+- **RN-012**: menção a `total_despesas` ajustada para citar a exclusão de valores ≤ 0.
+- Seção 9 (critérios de aceite): o critério da invariante passou a exigir
+  `transporte_urbano = 200,01` (sem o estorno).
+- Versão da spec: 1.0 → 1.1.
+
+**Por quê:** o usuário definiu que valores não positivos (estornos) não devem
+compor o total de despesas da categoria. `total_despesas` passa a representar o
+gasto **bruto positivo** (aceito + reprovado), sem ser reduzido por estornos.
+
+**O que isso invalidou:** reverte o comportamento previsto em **D-003**, que
+instruía testar o estorno `d-009` (−45,00) **reduzindo** `total_despesas` de
+`transporte_urbano` (155,01). Agora `d-009` é **excluído** da somatória e o total
+sobe para 200,01. `d-009` continua **recusado** ("valor inválido", RN-010) e
+listado em `reprovadas` — apenas não entra em `total_despesas`. A invariante
+`total_despesas ≥ total_aceito ≥ total_reembolso` continua válida (fica até mais
+folgada, pois removemos uma parcela negativa).
+
+**O que isso invalida na implementação:** o código já existe (`src/`, `tests/`) e
+os artefatos derivados (`plan.md`, `data-model.md`, `quickstart.md`,
+`contracts/cli-contract.md`, `tasks.md`) ainda assumem 155,01. Precisam ser
+atualizados via `/speckit-plan` → `/speckit-implement`. **Este passo alterou
+apenas `spec.md` e este log.**
+
+**Tasks afetadas:** a task de agregação/serialização de `total_despesas` e seus
+testes devem passar a **excluir valores ≤ 0** e esperar `transporte_urbano = 200,01`.
+
+**Custo:** 2 arquivos (`spec.md`, `DECISIONS.md`), ~6 blocos na spec.
+
+---
+
 ## D-003 — Enriquecimento do exemplo de saída (colaborador, período, total_despesas) · `2026-07-30`
 
 **Gatilho:** pedido do usuário via `/speckit-specify`. O exemplo de saída não

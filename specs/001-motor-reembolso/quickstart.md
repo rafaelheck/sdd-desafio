@@ -39,7 +39,7 @@ saída da Seção 4 da spec. Verificações-chave:
 |---|---|
 | `total_reembolso_geral` | `585.00`? Não — **`585.43`** |
 | `alimentacao` | `total_despesas 402.83`, `total_aceito 306.93`, `total_reembolso 255.43` |
-| `transporte_urbano` | `total_despesas 155.01`, `total_aceito 100.00`, `total_reembolso 80.00` |
+| `transporte_urbano` | `total_despesas 200.01` (exclui `d-009` −45,00, RN-014/D-004), `total_aceito 100.00`, `total_reembolso 80.00` |
 | `hospedagem` | `total_despesas 1170.00`, `total_aceito 480.00`, `total_reembolso 250.00` |
 | Reprovadas | `d-004` sem NF, `d-007` duplicado, `d-008` fora competência, `d-009` valor inválido, `d-013` sem NF, `d-005` categoria não aplicável |
 | Invariante | `total_despesas ≥ total_aceito ≥ total_reembolso` em toda categoria |

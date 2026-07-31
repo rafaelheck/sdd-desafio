@@ -55,6 +55,7 @@ alternativas avaliadas.
 
 ## Itens herdados da spec (não são decisão técnica, são regra)
 
-- Hospedagem por registro (AMB-006), `total_despesas` monetário (AMB-012),
-  desempate de duplicata pela 1ª ocorrência (D-002) e tratamento de registro
-  inválido (RN-013) já estão resolvidos na spec e apenas são implementados aqui.
+- Hospedagem por registro (AMB-006), `total_despesas` monetário (AMB-012) e com
+  exclusão de valores ≤ 0 por valor (RN-014/D-004), desempate de duplicata pela 1ª
+  ocorrência (D-002) e tratamento de registro inválido (RN-013) já estão resolvidos
+  na spec e apenas são implementados aqui.

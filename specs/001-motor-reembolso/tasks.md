@@ -99,7 +99,7 @@ saída correta para o exemplo oficial. Fases 3 e o restante da 4 endurecem e pro
 
 - [x] **T-015** — `agrega_categoria()` em `src/regras.py`: calcula `total_despesas` (aceitas + reprovadas da categoria), `total_aceito` e `total_reembolso`, garantindo a invariante
   - **Atende:** RN-012, RN-014, AMB-012
-  - **Aceite:** `tests/test_regras.py::test_rn_014_total_despesas` (transporte 100+100,01−45 = 155,01) e `::test_invariante_totais`
+  - **Aceite:** `tests/test_regras.py::test_rn_014_total_despesas` (transporte 100+100,01−45 = 155,01) e `::test_invariante_totais` — ⚠️ **revisto por T-025/D-004: agora exclui o −45 → 200,01**
   - **Commit:** `<hash>`
 
 - [x] **T-016** — Orquestrar o pipeline em `src/calculo.py` na ordem da Seção 8 (estrutura → normalização → dedup → categoria → período → valor → NF → tetos → agregação), montando o `Resultado`; primeiro gate que falha define o motivo
@@ -136,7 +136,7 @@ saída correta para o exemplo oficial. Fases 3 e o restante da 4 endurecem e pro
   - **Aceite:** `tests/test_cli.py::test_python_m_src` roda o exemplo por `python -m src`
   - **Commit:** `<hash>`
 
-- [x] **T-022** — Teste golden de integração em `tests/test_integracao.py`: rodar `exemplos/despesas-exemplo.json` (com e sem `--em-viagem`) e comparar com a saída da Seção 4 (`total_reembolso_geral == 585,43`, totais por categoria, reprovadas, 2 casas, acentos)
+- [x] **T-022** — Teste golden de integração em `tests/test_integracao.py`: rodar `exemplos/despesas-exemplo.json` (com e sem `--em-viagem`) e comparar com a saída da Seção 4 (`total_reembolso_geral == 585,43`, totais por categoria, reprovadas, 2 casas, acentos) — ⚠️ **`transporte_urbano.total_despesas` revisto para 200,01 por T-027/D-004**
   - **Atende:** RN-012, RN-014, valida o conjunto; quickstart
   - **Aceite:** `pytest tests/test_integracao.py` passa exatamente contra a saída da spec
   - **Commit:** `<hash>`
@@ -153,14 +153,33 @@ saída correta para o exemplo oficial. Fases 3 e o restante da 4 endurecem e pro
 
 ---
 
-## Fase 5 — Envelope (criar no Dia 2)
+## Fase 5 — Mudança de requisito D-004: `total_despesas` exclui valores ≤ 0
 
-<Novas tasks a partir da mudança de requisito. Numeração continua de onde parou —
-não reinicie e não renumere as antigas: a numeração é o eixo da rastreabilidade.>
+> Origem: `/speckit-specify` (D-004) + `/speckit-clarify` 2026-07-30 (opção A —
+> exclusão **por valor**, não por motivo). `total_despesas` deixa de somar despesas
+> com `valor ≤ 0`; no exemplo, `transporte_urbano` passa de 155,01 para **200,01**
+> (o estorno `d-009` −45,00 sai da somatória, mas continua recusado como "valor
+> inválido" e listado em `reprovadas`). Ver RN-014, DT-007. Numeração continua de
+> T-024; as tasks antigas não são renumeradas.
 
-*(Reservada. Candidatas já sinalizadas: confirmar AMB-012 `total_despesas`
-monetário vs. contagem; confirmar AMB-006 hospedagem por registro vs. por diária;
-precedência `--em-viagem` da CLI vs. campo `em_viagem` do JSON.)*
+- [ ] **T-025** — Alterar `agrega_categoria()` em `src/regras.py`: excluir de `total_despesas` toda despesa com `valor ≤ 0`, independentemente do motivo da recusa (exclusão **por valor**, não por motivo); `total_aceito` e `total_reembolso` inalterados. Revisa T-015.
+  - **Atende:** RN-014 (revista), D-004, DT-007
+  - **Aceite:** `tests/test_regras.py::test_rn_014_total_despesas` passa a esperar `transporte_urbano` 100,00 + 100,01 = **200,01**; a invariante `total_despesas ≥ total_aceito ≥ total_reembolso` continua válida
+  - **Commit:** `feat(T-025): total_despesas exclui valores <= 0 (D-004)`
+
+- [ ] **T-026** [P] — Atualizar e estender os testes de RN-014 em `tests/test_regras.py`: ajustar `test_rn_014_total_despesas` para 200,01 e adicionar `test_rn_014_exclui_valor_nao_positivo`, provando que uma despesa com `valor ≤ 0` recusada por um gate **anterior** ao de valor (ex.: duplicata ou fora da competência com valor negativo) também fica fora de `total_despesas` — exclusão por valor, não por motivo
+  - **Atende:** RN-014, D-004 (Clarifications 2026-07-30, opção A)
+  - **Aceite:** ambos os testes passam; o novo caso falharia sob a leitura "exclusão por motivo"
+  - **Commit:** `test(T-026): exclusao por valor em total_despesas`
+
+- [ ] **T-027** — Atualizar o golden em `tests/test_integracao.py`: `transporte_urbano.total_despesas == 200.01`; confirmar que `total_reembolso_geral` permanece `585.43` e as demais categorias (`alimentacao` 402.83, `hospedagem` 1170.00) não mudam. Revisa T-022
+  - **Atende:** RN-014, D-004; revisa T-022
+  - **Aceite:** `pytest tests/test_integracao.py` passa contra a saída atualizada da Seção 4 da spec
+  - **Commit:** `test(T-027): golden com transporte_urbano 200,01 (D-004)`
+
+*(Candidatas ainda em aberto, não acionadas: confirmar AMB-006 hospedagem por
+registro vs. por diária; precedência `--em-viagem` da CLI vs. campo `em_viagem`
+do JSON.)*
 
 ---
 
@@ -174,6 +193,8 @@ precedência `--em-viagem` da CLI vs. campo `em_viagem` do JSON.)*
 - **Fase 4:** T-018/T-019 (`io_json.py`) dependem de `modelo.py`; T-020 (`cli.py`)
   depende de T-016+T-018+T-019; T-021 depende de T-020; T-022 depende de T-020;
   T-023 e T-024 são `[P]` (independentes).
+- **Fase 5 (D-004):** T-025 altera `agrega_categoria()` (revisa T-015); T-026 (testes
+  de regra, `[P]`) e T-027 (golden, revisa T-022) validam T-025 e dependem dele.
 
 ## Exemplos de paralelização
 
@@ -204,7 +225,7 @@ exatamente a matriz que a correção vai montar.
 | RN-011 (precisão) | T-005 | `test_rn_011_arredonda_33_333` |
 | RN-012 (agregação) | T-015, T-019 | `test_rn_012_*`, `test_serializa_2_casas` |
 | RN-013 (registro inválido) | T-006, T-018 | `test_rn_013_registro_sem_data`, `test_json_topo_invalido_erro` |
-| RN-014 (total_despesas) | T-015 | `test_rn_014_total_despesas` |
+| RN-014 (total_despesas) | T-015, **T-025** | `test_rn_014_total_despesas` (200,01), `test_rn_014_exclui_valor_nao_positivo` |
 | AMB-002 (id na duplicidade) | T-007 | `test_rn_008_mantem_primeira` |
 | AMB-003 (caixa da categoria) | T-005, T-008 | `test_rn_001_uppercase_valida` |
 | AMB-004 (NF ausente = recusa) | T-011 | `test_rn_006_100_01_recusa` |
@@ -216,3 +237,4 @@ exatamente a matriz que a correção vai montar.
 | AMB-010 (ordem dos gates) | T-016 | `test_ordem_primeiro_gate` |
 | AMB-011 (recusa sem categoria) | T-008, T-019 | `test_rn_001_coworking_invalida` |
 | AMB-012 (total_despesas monetário) | T-015 | `test_rn_014_total_despesas`, `test_invariante_totais` |
+| D-004 (total_despesas exclui valor ≤ 0) | T-025, T-026, T-027 | `test_rn_014_exclui_valor_nao_positivo`, golden `transporte_urbano` 200,01 |

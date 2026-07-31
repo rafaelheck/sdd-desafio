@@ -1,6 +1,6 @@
 # Spec — Motor de Cálculo de Reembolso
 
-**Versão:** 1.0 · **Status:** rascunho · **Última alteração:** `2026-07-30`
+**Versão:** 1.1 · **Status:** rascunho · **Última alteração:** `2026-07-30`
 
 > **Regra de ouro deste arquivo:** ele descreve o QUÊ e o PORQUÊ. Nenhuma linha
 > aqui pode citar linguagem, biblioteca, classe, função ou estrutura de pasta.
@@ -31,6 +31,7 @@ reembolsável por categoria e por que cada despesa recusada foi recusada.
 
 - Q: Como tratar um registro estruturalmente inválido (campo obrigatório faltando, `valor` não numérico, ou `data` não parseável)? → A: Recusar apenas o registro (motivo "registro inválido") e processar os demais; um JSON de topo que não parseia aborta a execução.
 - Q: Entre duplicatas exatas, qual registro é mantido e qual vira "registro duplicado"? → A: Mantém a primeira ocorrência na ordem do input; as cópias seguintes são as duplicatas.
+- Q: Uma despesa com `valor ≤ 0` recusada por um motivo anterior à checagem de valor (ex.: duplicata ou fora da competência com valor negativo) entra em `total_despesas`? → A: Não. A exclusão de `total_despesas` é **por valor**: qualquer despesa com `valor ≤ 0` fica fora da somatória, independentemente do motivo da recusa.
 
 ## 3. Fora de escopo
 
@@ -77,7 +78,7 @@ viagem (ver AMB-008). Campos e significado:
 | `periodo.inicio` | data `YYYY-MM-DD` | Primeiro dia elegível (eco do input) |
 | `periodo.fim` | data `YYYY-MM-DD` | Último dia elegível (eco do input) |
 | `em_viagem` | booleano | Indicador de viagem aplicado |
-| `categorias.<cat>.total_despesas` | número | Soma do `valor` de **todas** as despesas da categoria, aceitas **e** reprovadas (após arredondamento). Vale a invariante `total_despesas ≥ total_aceito ≥ total_reembolso`. Ver AMB-012 |
+| `categorias.<cat>.total_despesas` | número | Soma do `valor` de **todas** as despesas da categoria, aceitas **e** reprovadas, **exceto valores ≤ 0** (após arredondamento). Vale a invariante `total_despesas ≥ total_aceito ≥ total_reembolso`. Ver AMB-012, RN-014 |
 | `categorias.<cat>.total_aceito` | número | Soma do `valor` das despesas **aceitas** da categoria (após arredondamento) |
 | `categorias.<cat>.total_reembolso` | número | Soma efetivamente reembolsável da categoria (após aplicação de tetos) |
 | `categorias.<cat>.reprovadas[]` | lista | Despesas recusadas cuja categoria declarada é essa categoria válida, cada uma com `id` e `motivo` |
@@ -110,7 +111,7 @@ Exemplo de saída (para o input de `exemplos/despesas-exemplo.json`, `em_viagem 
       ]
     },
     "transporte_urbano": {
-      "total_despesas": 155.01,
+      "total_despesas": 200.01,
       "total_aceito": 100.00,
       "total_reembolso": 80.00,
       "reprovadas": [
@@ -135,11 +136,12 @@ Exemplo de saída (para o input de `exemplos/despesas-exemplo.json`, `em_viagem 
 ```
 
 > **Nota sobre `total_despesas`:** inclui o `valor` de despesas reprovadas por
-> duplicidade, fora da competência, sem nota fiscal e valor inválido — desde que
-> a categoria declarada seja uma categoria válida. Despesas de categoria não
-> aplicável e registros estruturalmente inválidos **não** entram (vão para
-> `reprovadas_sem_categoria`). Por isso, em `transporte_urbano`, o estorno
-> `d-009` (−45,00) reduz o total: 100,00 + 100,01 − 45,00 = 155,01.
+> duplicidade, fora da competência e sem nota fiscal — desde que a categoria
+> declarada seja uma categoria válida. **Valores ≤ 0 (estornos / "valor inválido")
+> não entram na somatória**, assim como despesas de categoria não aplicável e
+> registros estruturalmente inválidos (esses vão para `reprovadas_sem_categoria`).
+> Por isso, em `transporte_urbano`, o estorno `d-009` (−45,00) **não** entra:
+> 100,00 + 100,01 = 200,01.
 
 ---
 
@@ -243,7 +245,7 @@ despesas do input continuam sendo avaliadas.
 **Regra:** A saída ecoa os dados de identificação do input — `colaborador` (`id`,
 `nome`, `centro_custo`), `competencia` e `periodo` (`inicio`, `fim`). Para cada
 categoria válida o sistema reporta: `total_despesas` (soma do `valor` de todas as
-despesas da categoria, aceitas e reprovadas — ver RN-014), `total_aceito` (soma
+despesas da categoria, aceitas e reprovadas, exceto valores ≤ 0 — ver RN-014), `total_aceito` (soma
 do `valor` das despesas aceitas), `total_reembolso` (soma reembolsável após tetos)
 e a lista de despesas recusadas daquela categoria com motivo. Recusas por
 categoria não aplicável vão para `reprovadas_sem_categoria` (ver AMB-011).
@@ -252,14 +254,16 @@ categoria não aplicável vão para `reprovadas_sem_categoria` (ver AMB-011).
 
 ### RN-014 — Total de despesas por categoria
 **Regra:** `total_despesas` de uma categoria é a soma do `valor` (já arredondado)
-de **todas** as despesas cuja categoria normalizada é aquela — aceitas e
-reprovadas (duplicidade, fora da competência, sem nota fiscal, valor inválido).
-Despesas de categoria não aplicável e registros estruturalmente inválidos não
-entram (não pertencem a categoria válida). Vale sempre
-`total_despesas ≥ total_aceito ≥ total_reembolso` (ver AMB-012).
-**Origem:** requisito de saída (esclarecimento do usuário, 2026-07-30).
-**Aceite:** em `transporte_urbano` do exemplo: 100,00 + 100,01 − 45,00 = 155,01,
-com `total_aceito` 100,00.
+de todas as despesas cuja categoria normalizada é aquela — aceitas e reprovadas
+(duplicidade, fora da competência, sem nota fiscal) — **exceto valores ≤ 0, que
+nunca entram na somatória, independentemente do motivo da recusa** (a exclusão é
+por valor, não por motivo). Despesas de categoria não aplicável e registros
+estruturalmente inválidos também não entram (não pertencem a categoria válida).
+Vale sempre `total_despesas ≥ total_aceito ≥ total_reembolso` (ver AMB-012).
+**Origem:** requisito de saída (esclarecimento do usuário, 2026-07-30; revisto em
+2026-07-30, ver DECISIONS D-004).
+**Aceite:** em `transporte_urbano` do exemplo: 100,00 + 100,01 = 200,01 (o estorno
+`d-009` de −45,00 é excluído da somatória), com `total_aceito` 100,00.
 
 ---
 
@@ -408,8 +412,9 @@ O sistema está pronto quando:
 - [ ] A saída ecoa `colaborador` (`id`, `nome`, `centro_custo`) e `periodo`
       (`inicio`, `fim`) do input.
 - [ ] Em toda categoria vale `total_despesas ≥ total_aceito ≥ total_reembolso`, e
-      `total_despesas` inclui o `valor` das despesas reprovadas da categoria
-      (ex.: `transporte_urbano` = 155,01).
+      `total_despesas` inclui o `valor` das despesas reprovadas da categoria, mas
+      **exclui valores ≤ 0** (ex.: `transporte_urbano` = 200,01, sem o estorno
+      `d-009` de −45,00).
 - [ ] Cada despesa recusada traz um dos motivos: "categoria não aplicável",
       "data fora da competência", "registro duplicado", "sem nota fiscal
       obrigatória", "valor inválido", "registro inválido".

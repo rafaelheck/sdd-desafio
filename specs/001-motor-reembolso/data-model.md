@@ -65,7 +65,7 @@ viram `REGISTRO_DUPLICADO`.
 ### `ResultadoCategoria`
 | Campo | Tipo | Regra |
 |---|---|---|
-| `total_despesas` | `Decimal` | soma do `valor` de aceitas + reprovadas da categoria (RN-014) |
+| `total_despesas` | `Decimal` | soma do `valor` de aceitas + reprovadas da categoria, **exceto valores ≤ 0** (RN-014, D-004) |
 | `total_aceito` | `Decimal` | soma do `valor` das aceitas (RN-012) |
 | `total_reembolso` | `Decimal` | soma após tetos (RN-002..RN-005) |
 | `reprovadas` | list[`Reprovacao`] | recusas cuja categoria declarada é válida |
@@ -102,7 +102,8 @@ JSON bruto
 Resultado
 ```
 
-`total_despesas` acumula o `valor` de **todas** as despesas com categoria válida
-(aceitas e reprovadas por duplicidade/período/NF/valor); registros inválidos e
-categoria não aplicável não entram em nenhuma categoria (vão para
-`reprovadas_sem_categoria`).
+`total_despesas` acumula o `valor` das despesas com categoria válida (aceitas e
+reprovadas por duplicidade/período/NF) **cujo `valor > 0`** — valores ≤ 0 ficam
+fora da somatória por valor, não por motivo (RN-014, D-004; ex.: `d-009` −45,00).
+Registros inválidos e categoria não aplicável não entram em nenhuma categoria
+(vão para `reprovadas_sem_categoria`).
