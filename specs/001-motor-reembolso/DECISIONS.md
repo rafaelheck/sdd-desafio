@@ -10,6 +10,46 @@ Ordem cronológica inversa: a mais recente primeiro.
 
 ---
 
+## D-003 — Enriquecimento do exemplo de saída (colaborador, período, total_despesas) · `2026-07-30`
+
+**Gatilho:** pedido do usuário via `/speckit-specify`. O exemplo de saída não
+ecoava a identificação do colaborador nem o período, e não havia um total de
+despesas por categoria antes da aplicação das regras.
+
+**O que mudou na spec:**
+- Seção 4 (tabela de saída + exemplo JSON): a saída passa a ecoar `colaborador`
+  (`id`, `nome`, `centro_custo`) e `periodo` (`inicio`, `fim`); cada objeto de
+  categoria ganha `total_despesas`.
+- Nova **RN-014 — Total de despesas por categoria**: `total_despesas` = soma do
+  `valor` de todas as despesas da categoria (aceitas + reprovadas), valendo a
+  invariante `total_despesas ≥ total_aceito ≥ total_reembolso`.
+- RN-012 ampliada para citar o eco de `colaborador`/`periodo` e o novo campo.
+- Nova **AMB-012**: resolvida a ambiguidade "valor monetário vs. contagem" de
+  `total_despesas` → decidido **valor monetário** (parideia com `total_aceito`).
+- Seção 9 (critérios de aceite): contagem de regras corrigida para 14
+  (RN-001..RN-014) e adicionados critérios para o eco e para a invariante.
+
+**Por quê:** relatório de reembolso mais completo e auditável — mostra de quem/de
+que período é o resultado e, por categoria, quanto foi gasto no total, quanto foi
+aceito e quanto será reembolsado.
+
+**O que isso invalidou:** o exemplo de saída anterior (sem `colaborador`,
+`periodo` e `total_despesas`) — substituído. Nada de implementação foi afetado
+(ainda não há código).
+
+**Tasks afetadas:** nenhuma ainda (`tasks.md` não gerado). A futura task de
+serialização da saída deve incluir os novos campos e testar a invariante e o caso
+do estorno (`d-009`, −45,00) reduzindo `total_despesas` de `transporte_urbano`.
+
+**Custo:** 1 arquivo (`spec.md`), 5 blocos tocados (tabela, exemplo, RN-012,
+RN-014, AMB-012, critérios de aceite).
+
+**Ponto em aberto sinalizado ao usuário:** a interpretação de `total_despesas`
+como valor monetário (AMB-012) é reversível para contagem caso essa fosse a
+intenção.
+
+---
+
 ## D-002 — Desempate de duplicatas: mantém a primeira ocorrência · `2026-07-30`
 
 **Gatilho:** pergunta de `/speckit-clarify`. A RN-008 dizia que duplicatas exatas
