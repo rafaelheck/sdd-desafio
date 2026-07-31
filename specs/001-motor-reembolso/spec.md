@@ -1,6 +1,6 @@
 # Spec — Motor de Cálculo de Reembolso
 
-**Versão:** 1.1 · **Status:** rascunho · **Última alteração:** `2026-07-30`
+**Versão:** 1.3 · **Status:** rascunho · **Última alteração:** `2026-07-31`
 
 > **Regra de ouro deste arquivo:** ele descreve o QUÊ e o PORQUÊ. Nenhuma linha
 > aqui pode citar linguagem, biblioteca, classe, função ou estrutura de pasta.
@@ -23,7 +23,10 @@ paga parcialmente.
 
 Dado um conjunto de despesas de um colaborador em uma competência, o sistema
 decide de forma determinística e auditável o que é reembolsável, quanto é
-reembolsável por categoria e por que cada despesa recusada foi recusada.
+reembolsável por categoria e por que cada despesa recusada foi recusada. As
+categorias válidas, seus limites, o limiar de nota fiscal e o acréscimo de
+viagem passam a ser lidos de uma **política externa versionada** e podem variar
+por **centro de custo**.
 
 ## Clarifications
 
@@ -33,16 +36,27 @@ reembolsável por categoria e por que cada despesa recusada foi recusada.
 - Q: Entre duplicatas exatas, qual registro é mantido e qual vira "registro duplicado"? → A: Mantém a primeira ocorrência na ordem do input; as cópias seguintes são as duplicatas.
 - Q: Uma despesa com `valor ≤ 0` recusada por um motivo anterior à checagem de valor (ex.: duplicata ou fora da competência com valor negativo) entra em `total_despesas`? → A: Não. A exclusão de `total_despesas` é **por valor**: qualquer despesa com `valor ≤ 0` fica fora da somatória, independentemente do motivo da recusa.
 
+### Session 2026-07-31
+
+- Q: Onde reportar despesas de uma categoria que existe no centro de custo mas tem limite ≤ 0 (ex.: hospedagem em `CC-ENG-PLATAFORMA`, `observacao` "nao reembolsavel")? → A: Sob a própria categoria (a categoria aparece no bloco `categorias` com `total_aceito`/`total_reembolso` = 0 e as despesas em `reprovadas[]`).
+- Q: Quando uma despesa de categoria com limite ≤ 0 também viola outra regra (sem NF, fora do período, etc.), qual motivo prevalece? → A: O motivo de limite ≤ 0 prevalece — a aplicabilidade da categoria (existência + limite > 0) é avaliada logo após a normalização, antes de duplicata/período/valor/nota fiscal.
+- Q: Quais categorias aparecem no bloco `categorias` da saída, agora que cada centro de custo tem seu próprio conjunto? → A: Apenas as categorias válidas para o centro de custo que tenham ao menos uma despesa no input; não se emitem blocos zerados para categorias configuradas sem despesas.
+- Q: As regras de teto RN-002/RN-003/RN-004 ainda citavam categorias fixas (alimentação, transporte, hospedagem). Como generalizá-las para que o sistema não conheça categoria alguma? → A: Reescritas por **papel**, sem nome de categoria: RN-002 = teto de periodicidade "dia" (`min(soma_do_dia, limite)`); RN-003 = teto de periodicidade "diaria" (`min(valor, limite)` por registro); RN-004 = origem do teto (o `limite` vem da entrada da categoria na política do centro de custo resolvido — nenhuma categoria é privilegiada). O conjunto de categorias, seus limites e periodicidades saem inteiramente de `politica-v4.json`; novas categorias passam a ser reembolsáveis e categorias removidas deixam de ser aplicáveis sem qualquer mudança de regra ou código.
+
 ## 3. Fora de escopo
 
 - Não calcula estornos, créditos ou saldos negativos — o sistema só produz
   valores de reembolso maiores ou iguais a zero.
 - Não valida a autenticidade da nota fiscal; confia no campo `tem_nota_fiscal`.
-- Não faz conversão de moeda; todos os valores são em BRL.
+- Não faz conversão de moeda; todos os valores são em BRL. (A política externa
+  declara `moeda_base` BRL; não há regra de câmbio nesta versão.)
 - Não decide teto por diária individual de hospedagem quando um registro agrupa
-  várias diárias (ver AMB-006); o teto é por registro.
+  várias diárias (ver AMB-006); em categorias de periodicidade "diaria" o teto é
+  por registro.
 - Não trata dias úteis/fins de semana/feriados de forma diferente — não existe
   regra de calendário na política.
+- Não valida o conteúdo da política externa além de ler os parâmetros que usa;
+  assume-se que o arquivo de política está bem formado.
 - Não persiste dados nem expõe interface além de ler um input e emitir um output.
 
 ## 4. Entrada e saída
@@ -54,7 +68,7 @@ viagem (ver AMB-008). Campos e significado:
 |---|---|---|---|
 | `colaborador.id` | texto | Identificador do colaborador | sim |
 | `colaborador.nome` | texto | Nome do colaborador | sim |
-| `colaborador.centro_custo` | texto | Centro de custo | sim |
+| `colaborador.centro_custo` | texto | Centro de custo; determina o conjunto de categorias e limites via política (RN-015). Se não existir na política, usa o objeto `padrao` | sim |
 | `periodo.competencia` | texto `YYYY-MM` | Rótulo da competência | sim |
 | `periodo.inicio` | data `YYYY-MM-DD` | Primeiro dia elegível (inclusive) | sim |
 | `periodo.fim` | data `YYYY-MM-DD` | Último dia elegível (inclusive) | sim |
@@ -67,6 +81,23 @@ viagem (ver AMB-008). Campos e significado:
 | `despesas[].valor` | número | Valor em BRL | sim |
 | `despesas[].tem_nota_fiscal` | booleano | Se há nota fiscal anexada | sim |
 
+**Política externa (fonte da verdade de categorias e limites):** um arquivo
+versionado (`politica-v4.json`) fornece, por centro de custo, o conjunto de
+categorias reembolsáveis e, para cada categoria, `limite` e `periodicidade`
+(e, opcionalmente, `observacao`). Fornece também os parâmetros globais
+`nota_fiscal_obrigatoria_acima_de` e `acrescimo_em_viagem_percentual`. Estrutura
+relevante:
+
+| Elemento | Significado |
+|---|---|
+| `padrao` | Conjunto de categorias/limites usado quando o centro de custo do input não existe em `centros_custo` (RN-015) |
+| `centros_custo.<CC>` | Conjunto de categorias/limites específico de um centro de custo |
+| `<CC>.<categoria>.limite` | Teto monetário da categoria naquele centro. Se ≤ 0, a categoria não é reembolsável (RN-017) |
+| `<CC>.<categoria>.periodicidade` | `"dia"` (limite sobre a soma da categoria por dia civil) ou `"diaria"` (limite por registro) — ver RN-016 |
+| `<CC>.<categoria>.observacao` | Texto opcional usado como motivo quando o limite ≤ 0 (RN-017) |
+| `nota_fiscal_obrigatoria_acima_de` | Valor acima do qual a nota fiscal é obrigatória (RN-006) |
+| `acrescimo_em_viagem_percentual` | Percentual de acréscimo aplicado aos limites quando `em_viagem = true` (RN-009) |
+
 **Saída:** definida por mim. Estrutura e significado de cada campo:
 
 | Campo | Tipo | Significado |
@@ -78,14 +109,18 @@ viagem (ver AMB-008). Campos e significado:
 | `periodo.inicio` | data `YYYY-MM-DD` | Primeiro dia elegível (eco do input) |
 | `periodo.fim` | data `YYYY-MM-DD` | Último dia elegível (eco do input) |
 | `em_viagem` | booleano | Indicador de viagem aplicado |
+| `categorias.<cat>` | objeto | Um bloco por categoria **válida para o centro de custo que tenha ao menos uma despesa no input** (ver RN-016, AMB-015). Categorias com limite ≤ 0 também aparecem quando têm despesas, com totais aceito/reembolso zerados (AMB-014) |
 | `categorias.<cat>.total_despesas` | número | Soma do `valor` de **todas** as despesas da categoria, aceitas **e** reprovadas, **exceto valores ≤ 0** (após arredondamento). Vale a invariante `total_despesas ≥ total_aceito ≥ total_reembolso`. Ver AMB-012, RN-014 |
 | `categorias.<cat>.total_aceito` | número | Soma do `valor` das despesas **aceitas** da categoria (após arredondamento) |
-| `categorias.<cat>.total_reembolso` | número | Soma efetivamente reembolsável da categoria (após aplicação de tetos) |
+| `categorias.<cat>.total_reembolso` | número | Soma efetivamente reembolsável da categoria (após aplicação de limites) |
 | `categorias.<cat>.reprovadas[]` | lista | Despesas recusadas cuja categoria declarada é essa categoria válida, cada uma com `id` e `motivo` |
-| `reprovadas_sem_categoria[]` | lista | Despesas recusadas por categoria não aplicável (não pertencem a nenhuma categoria válida), com `id`, `categoria_informada` e `motivo` |
-| `total_reembolso_geral` | número | Soma de `total_reembolso` das três categorias |
+| `reprovadas_sem_categoria[]` | lista | Despesas recusadas por categoria não aplicável (categoria que não pertence ao conjunto do centro de custo), com `id`, `categoria_informada` e `motivo` |
+| `total_reembolso_geral` | número | Soma de `total_reembolso` de **todas** as categorias presentes na saída |
 
-Exemplo de saída (para o input de `exemplos/despesas-exemplo.json`, `em_viagem = false`):
+Exemplo de saída (para o input de `exemplos/despesas-exemplo.json`, centro de
+custo `CC-ENG-PLATAFORMA`, `em_viagem = false`). Na política vigente esse centro
+tem `alimentacao` limite 75,00 (dia), `transporte_urbano` limite 80,00 (dia) e
+`hospedagem` limite 0,00 (diaria, `observacao` "nao reembolsavel"):
 
 ```json
 {
@@ -104,7 +139,7 @@ Exemplo de saída (para o input de `exemplos/despesas-exemplo.json`, `em_viagem 
     "alimentacao": {
       "total_despesas": 402.83,
       "total_aceito": 306.93,
-      "total_reembolso": 255.43,
+      "total_reembolso": 271.43,
       "reprovadas": [
         { "id": "d-007", "motivo": "registro duplicado" },
         { "id": "d-008", "motivo": "data fora da competência" }
@@ -121,27 +156,37 @@ Exemplo de saída (para o input de `exemplos/despesas-exemplo.json`, `em_viagem 
     },
     "hospedagem": {
       "total_despesas": 1170.00,
-      "total_aceito": 480.00,
-      "total_reembolso": 250.00,
+      "total_aceito": 0.00,
+      "total_reembolso": 0.00,
       "reprovadas": [
-        { "id": "d-013", "motivo": "sem nota fiscal obrigatória" }
+        { "id": "d-010", "motivo": "nao reembolsavel" },
+        { "id": "d-013", "motivo": "nao reembolsavel" }
       ]
     }
   },
   "reprovadas_sem_categoria": [
     { "id": "d-005", "categoria_informada": "coworking", "motivo": "categoria não aplicável" }
   ],
-  "total_reembolso_geral": 585.43
+  "total_reembolso_geral": 351.43
 }
 ```
 
 > **Nota sobre `total_despesas`:** inclui o `valor` de despesas reprovadas por
-> duplicidade, fora da competência e sem nota fiscal — desde que a categoria
-> declarada seja uma categoria válida. **Valores ≤ 0 (estornos / "valor inválido")
-> não entram na somatória**, assim como despesas de categoria não aplicável e
+> duplicidade, fora da competência, sem nota fiscal e por limite ≤ 0
+> ("nao reembolsavel") — desde que a categoria declarada seja uma categoria
+> válida do centro de custo. **Valores ≤ 0 (estornos / "valor inválido") não
+> entram na somatória**, assim como despesas de categoria não aplicável e
 > registros estruturalmente inválidos (esses vão para `reprovadas_sem_categoria`).
 > Por isso, em `transporte_urbano`, o estorno `d-009` (−45,00) **não** entra:
-> 100,00 + 100,01 = 200,01.
+> 100,00 + 100,01 = 200,01. Em `hospedagem`, os dois registros são reprovados
+> por "nao reembolsavel" mas seus valores (> 0) somam `total_despesas` = 1170,00
+> com `total_aceito` e `total_reembolso` = 0,00.
+>
+> **Nota sobre o exemplo x versão anterior:** com `CC-ENG-PLATAFORMA` na política
+> v4, o teto diário de alimentação passou de 60,00 para 75,00 (07-03: 110,50 →
+> reembolso 75,00; 07-31: 61,00 → reembolso 61,00) e hospedagem ficou não
+> reembolsável (limite 0,00), reduzindo `total_reembolso_geral` de 585,43 para
+> 351,43.
 
 ---
 
@@ -149,34 +194,99 @@ Exemplo de saída (para o input de `exemplos/despesas-exemplo.json`, `em_viagem 
 
 Cada regra recebe um ID (`RN-001`, ...). As tasks vão referenciar esses IDs.
 
-### RN-001 — Categorias válidas
-**Regra:** Só existem três categorias reembolsáveis: `alimentacao`,
-`transporte_urbano` e `hospedagem`. A comparação é feita sem diferenciar
-maiúsculas/minúsculas e após remover espaços nas pontas (ver AMB-003). Qualquer
-outra categoria é "categoria não aplicável" e não é reembolsável.
-**Origem:** política do RH, item "Categorias fora da política não são reembolsáveis".
-**Aceite:** `coworking` é recusada com motivo "categoria não aplicável"; `ALIMENTACAO`
-é tratada como `alimentacao`.
+### RN-015 — Política externa e resolução de centro de custo
+**Regra:** As categorias reembolsáveis, seus limites, sua periodicidade, o limiar
+de nota fiscal e o acréscimo de viagem são lidos de uma política externa
+versionada, não codificados na regra. Para um input, resolve-se o conjunto
+aplicável assim: se `colaborador.centro_custo` existe em `centros_custo`, usa-se
+o objeto daquele centro; caso contrário, usa-se o objeto `padrao`. Os parâmetros
+globais `nota_fiscal_obrigatoria_acima_de` e `acrescimo_em_viagem_percentual`
+valem para qualquer centro.
+**Origem:** nova política de centros de custo (2026-07-31).
+**Aceite:** um input com `centro_custo` inexistente na política é avaliado pelos
+limites de `padrao` (alimentacao 60,00/dia, transporte 80,00/dia, hospedagem
+250,00/diaria).
 
-### RN-002 — Teto diário de alimentação
-**Regra:** O teto de `alimentacao` é R$ 60,00 por dia civil, somando **todas** as
-despesas aceitas da categoria naquele dia. O excedente não é reembolsado; o
-reembolso do dia é `min(soma_do_dia, teto)`.
-**Origem:** política do RH, "Alimentação tem limite de R$ 60 por dia" + "Despesas acima do limite são reembolsadas parcialmente".
-**Aceite:** 72,50 + 38,00 no mesmo dia → total aceito 110,50, reembolso 60,00.
+### RN-016 — Periodicidade do limite (classificação)
+**Regra:** Cada categoria traz na política um campo `periodicidade` que **seleciona
+qual mecânica de teto** se aplica, sem que o sistema precise conhecer a categoria:
+- `"dia"`: aplica-se o teto de periodicidade "dia" (RN-002).
+- `"diaria"`: aplica-se o teto de periodicidade "diaria" (RN-003).
 
-### RN-003 — Teto diário de transporte urbano
-**Regra:** O teto de `transporte_urbano` é R$ 80,00 por dia civil, somando todas
-as despesas aceitas da categoria naquele dia. Reembolso do dia = `min(soma_do_dia, teto)`.
-**Origem:** política do RH, "Transporte urbano tem limite de R$ 80 por dia".
-**Aceite:** uma corrida aceita de 100,00 no dia → reembolso 80,00.
+A seleção é feita exclusivamente pelo valor de `periodicidade` lido da política; o
+nome da categoria (`alimentacao`, `hospedagem`, etc.) **não** influencia a escolha.
+Uma categoria nova com `periodicidade` "dia" já reembolsa pela mecânica de RN-002
+sem qualquer alteração de regra ou código. (Um valor de `periodicidade` fora de
+{"dia", "diaria"} está fora de escopo — assume-se política bem formada, ver Seção 10.)
+**Origem:** nova política de centros de custo (2026-07-31); generalização 2026-07-31.
+**Aceite:** na política vigente, `alimentacao` e `transporte_urbano` são "dia" e
+`hospedagem` é "diaria"; se `hospedagem` passar a "dia", seu limite passa a incidir
+sobre a soma do dia sem mudança no sistema.
 
-### RN-004 — Teto de hospedagem por registro
-**Regra:** O teto de `hospedagem` é R$ 250,00 **por registro**, independente da
-quantidade de diárias que o registro declare ou de quantos registros houver no
-dia. Reembolso do registro = `min(valor, teto)`.
-**Origem:** política do RH, "Hospedagem tem limite de R$ 250 por diária" (reinterpretado — ver AMB-006).
-**Aceite:** registro de 480,00 ("2 diárias") → reembolso 250,00.
+### RN-017 — Categoria com limite ≤ 0 (não reembolsável)
+**Regra:** Se, para o centro de custo resolvido, a categoria existe mas seu
+`limite` é **menor ou igual a zero**, toda despesa dessa categoria é recusada com
+reembolso 0. O `motivo` é o valor de `observacao` da categoria; se não houver
+`observacao`, o motivo é "categoria não aplicável". Essas despesas são reportadas
+**sob a própria categoria** (`categorias.<cat>.reprovadas[]`) e a categoria
+aparece na saída com `total_aceito` = 0 e `total_reembolso` = 0 (mas
+`total_despesas` soma os valores > 0). Esta checagem é avaliada logo após a
+validade da categoria e **antes** de duplicata, período, valor e nota fiscal
+(ver AMB-014, Seção 8).
+**Origem:** nova política de centros de custo (2026-07-31).
+**Aceite:** em `CC-ENG-PLATAFORMA` (hospedagem limite 0,00, `observacao`
+"nao reembolsavel"), `d-010` e `d-013` são recusados com motivo "nao reembolsavel"
+sob `hospedagem`, mesmo `d-013` estando sem nota fiscal.
+
+### RN-001 — Categorias válidas por centro de custo
+**Regra:** As categorias reembolsáveis são exatamente as **chaves do conjunto do
+centro de custo resolvido** na política (RN-015) — não mais um conjunto fixo. A
+comparação da categoria declarada é feita sem diferenciar maiúsculas/minúsculas e
+após remover espaços nas pontas (ver AMB-003). Qualquer categoria declarada que
+não esteja nesse conjunto é "categoria não aplicável", não é reembolsável e vai
+para `reprovadas_sem_categoria`.
+**Origem:** política do RH + nova política de centros de custo (2026-07-31).
+**Aceite:** em `CC-ENG-PLATAFORMA`, `coworking` é recusada "categoria não
+aplicável"; `ALIMENTACAO` é tratada como `alimentacao`. Em `CC-ADM` (sem
+`hospedagem` no conjunto), uma despesa de `hospedagem` é "categoria não aplicável".
+
+### RN-002 — Teto de periodicidade "dia" (soma diária)
+**Regra:** Para **qualquer** categoria cuja `periodicidade` na política do centro
+de custo resolvido seja `"dia"` (RN-016), o `limite` da categoria (RN-004) incide
+sobre a **soma das despesas aceitas dessa categoria no mesmo dia civil**. O
+excedente não é reembolsado; o reembolso do dia é `min(soma_do_dia, limite)`. A
+regra não conhece nem cita categoria alguma — aplica-se a toda categoria "dia",
+existente hoje ou adicionada no futuro. (Na política vigente, `alimentacao`,
+`transporte_urbano` e `representacao` são "dia".)
+**Origem:** política do RH, "limite por dia" + "despesas acima do limite são reembolsadas parcialmente"; limite e periodicidade vindos da política externa (RN-004, RN-015, RN-016).
+**Aceite:** categoria "dia" com limite 75,00, 72,50 + 38,00 no mesmo dia →
+total aceito 110,50, reembolso 75,00; com limite 80,00, uma despesa aceita de
+100,00 no dia → reembolso 80,00.
+
+### RN-003 — Teto de periodicidade "diaria" (por registro)
+**Regra:** Para **qualquer** categoria cuja `periodicidade` na política do centro
+de custo resolvido seja `"diaria"` (RN-016), o `limite` da categoria (RN-004)
+incide **por registro individual**, independente de quantas diárias o registro
+declare ou de quantos registros haja no dia (ver AMB-006). Reembolso do registro =
+`min(valor, limite)`. A regra não conhece nem cita categoria alguma — aplica-se a
+toda categoria "diaria". (Na política vigente, `hospedagem` é "diaria".)
+**Origem:** política do RH, "limite por diária" (reinterpretado — ver AMB-006); limite e periodicidade vindos da política externa (RN-004, RN-015, RN-016).
+**Aceite:** categoria "diaria" com limite 250,00, registro de 480,00 ("2 diárias")
+→ reembolso 250,00; dois registros de 200,00 no mesmo dia → 200,00 + 200,00 (cada
+um sob seu próprio teto, sem agregar o dia).
+
+### RN-004 — Origem do teto (limite pela política, sem categoria privilegiada)
+**Regra:** O teto de uma categoria é sempre o `limite` da entrada dessa categoria
+na política do centro de custo resolvido (RN-015) — `politica[<CC>][<categoria>].limite`.
+**Nenhuma categoria tem limite embutido no sistema**; não há valor padrão em código
+para `alimentacao`, `hospedagem` ou qualquer outra. Alterar o `limite` na política
+altera o teto sem mudança de regra; o conjunto `padrao` fornece o limite quando o
+centro de custo não existe em `centros_custo`. Aplicado o limite, a mecânica segue
+a periodicidade da categoria (RN-002 ou RN-003).
+**Origem:** requisito de política externa; generalização das regras de teto (2026-07-31).
+**Aceite:** `alimentacao` reembolsa com limite 60,00 no `padrao`, 75,00 em
+`CC-ENG-PLATAFORMA` e 45,00 em `CC-ADM`, apenas trocando o valor na política; se a
+política passar `alimentacao` para limite 80,00, o teto vira 80,00 sem tocar no código.
 
 ### RN-005 — Reembolso parcial no teto
 **Regra:** Quando o valor aceito ultrapassa o teto aplicável, reembolsa-se apenas
@@ -186,12 +296,13 @@ até o teto; o excedente é perdido. A despesa continua **aceita** (entra em
 **Aceite:** ver RN-002/003/004.
 
 ### RN-006 — Nota fiscal obrigatória
-**Regra:** Nota fiscal é obrigatória para valores **estritamente acima** de
-R$ 100,00. Em R$ 100,00 exatos não é necessária. Se obrigatória e ausente
+**Regra:** Nota fiscal é obrigatória para valores **estritamente acima** do
+parâmetro `nota_fiscal_obrigatoria_acima_de` da política (R$ 100,00 na v4). No
+valor exato do limiar não é necessária. Se obrigatória e ausente
 (`tem_nota_fiscal = false`), a despesa é recusada com motivo "sem nota fiscal
 obrigatória" e reembolsa 0 (ver AMB-004).
-**Origem:** política do RH, "Nota fiscal é obrigatória acima de R$ 100".
-**Aceite:** 100,00 sem NF → aceita; 100,01 sem NF → recusada.
+**Origem:** política do RH, "Nota fiscal é obrigatória acima de um valor base"; valor vindo da política externa (RN-015).
+**Aceite:** com limiar 100,00: 100,00 sem NF → aceita; 100,01 sem NF → recusada.
 
 ### RN-007 — Período de competência
 **Regra:** Só são elegíveis despesas cuja `data` esteja no intervalo
@@ -210,12 +321,15 @@ recusada com motivo "registro duplicado" (ver AMB-002).
 **Aceite:** `d-006` e `d-007` (idênticos exceto `id`) → `d-006` (primeiro) é aceito, `d-007` é "registro duplicado".
 
 ### RN-009 — Limites ampliados em viagem
-**Regra:** Se `em_viagem = true`, os tetos das três categorias são multiplicados
-por 1,5 (alimentação 90,00/dia; transporte 120,00/dia; hospedagem 375,00/registro).
-O limiar de nota fiscal (R$ 100,00) **não** é ampliado. O indicador vale para
-todas as despesas do input (ver AMB-008).
-**Origem:** política do RH, "Colaborador em viagem tem limites ampliados em 50%".
-**Aceite:** em viagem, alimentação de 85,00 num dia → reembolso 85,00 (dentro de 90).
+**Regra:** Se `em_viagem = true`, os limites de **todas as categorias** do centro
+de custo são multiplicados por `(1 + acrescimo_em_viagem_percentual / 100)` (na
+v4, +50% → ×1,5). O limiar de nota fiscal **não** é ampliado. Uma categoria com
+limite ≤ 0 permanece não reembolsável (0 × qualquer fator = 0). O indicador vale
+para todas as despesas do input (ver AMB-008).
+**Origem:** política do RH, "Colaborador em viagem tem limites ampliados"; percentual vindo da política externa (RN-015).
+**Aceite:** em viagem, `CC-ENG-PLATAFORMA` alimentação 75,00 → 112,50; transporte
+80,00 → 120,00; hospedagem 0,00 → 0,00 (permanece não reembolsável); limiar de NF
+continua 100,00.
 
 ### RN-010 — Valores inválidos
 **Regra:** Valor menor ou igual a zero é inválido; a despesa é recusada com
@@ -244,22 +358,25 @@ despesas do input continuam sendo avaliadas.
 ### RN-012 — Agregação por categoria
 **Regra:** A saída ecoa os dados de identificação do input — `colaborador` (`id`,
 `nome`, `centro_custo`), `competencia` e `periodo` (`inicio`, `fim`). Para cada
-categoria válida o sistema reporta: `total_despesas` (soma do `valor` de todas as
-despesas da categoria, aceitas e reprovadas, exceto valores ≤ 0 — ver RN-014), `total_aceito` (soma
-do `valor` das despesas aceitas), `total_reembolso` (soma reembolsável após tetos)
-e a lista de despesas recusadas daquela categoria com motivo. Recusas por
-categoria não aplicável vão para `reprovadas_sem_categoria` (ver AMB-011).
+categoria válida do centro de custo **que tenha ao menos uma despesa no input**
+(ver AMB-015) o sistema reporta: `total_despesas` (soma do `valor` de todas as
+despesas da categoria, aceitas e reprovadas, exceto valores ≤ 0 — ver RN-014),
+`total_aceito` (soma do `valor` das despesas aceitas), `total_reembolso` (soma
+reembolsável após limites) e a lista de despesas recusadas daquela categoria com
+motivo. Recusas por categoria não aplicável vão para `reprovadas_sem_categoria`
+(ver AMB-011). `total_reembolso_geral` é a soma de `total_reembolso` de todas as
+categorias presentes.
 **Origem:** requisito de saída do desafio.
 **Aceite:** ver exemplo da Seção 4.
 
 ### RN-014 — Total de despesas por categoria
 **Regra:** `total_despesas` de uma categoria é a soma do `valor` (já arredondado)
 de todas as despesas cuja categoria normalizada é aquela — aceitas e reprovadas
-(duplicidade, fora da competência, sem nota fiscal) — **exceto valores ≤ 0, que
-nunca entram na somatória, independentemente do motivo da recusa** (a exclusão é
-por valor, não por motivo). Despesas de categoria não aplicável e registros
-estruturalmente inválidos também não entram (não pertencem a categoria válida).
-Vale sempre `total_despesas ≥ total_aceito ≥ total_reembolso` (ver AMB-012).
+(duplicidade, fora da competência, sem nota fiscal, limite ≤ 0) — **exceto
+valores ≤ 0, que nunca entram na somatória, independentemente do motivo da recusa**
+(a exclusão é por valor, não por motivo). Despesas de categoria não aplicável e
+registros estruturalmente inválidos também não entram (não pertencem a categoria
+válida). Vale sempre `total_despesas ≥ total_aceito ≥ total_reembolso` (ver AMB-012).
 **Origem:** requisito de saída (esclarecimento do usuário, 2026-07-30; revisto em
 2026-07-30, ver DECISIONS D-004).
 **Aceite:** em `transporte_urbano` do exemplo: 100,00 + 100,01 = 200,01 (o estorno
@@ -273,11 +390,11 @@ Vale sempre `total_despesas ≥ total_aceito ≥ total_reembolso` (ver AMB-012).
 > registro aqui conta como não resolvida.
 
 ### AMB-001 — Como distribuir o teto diário entre várias despesas do mesmo dia
-**Texto original do RH:** "Alimentação tem limite de R$ 60 por dia." + "Despesas acima do limite são reembolsadas parcialmente."
+**Texto original do RH:** "Alimentação tem limite por dia." + "Despesas acima do limite são reembolsadas parcialmente."
 **O que não está claro:** com duas despesas no mesmo dia somando mais que o teto, reembolsa-se por despesa (e nesse caso, em que ordem?) ou agrega-se o dia?
-**Decisão:** o teto incide sobre o **agregado do dia** por categoria. Reembolso do dia = `min(soma das aceitas do dia, teto)`. Como a saída é por categoria, não é preciso ratear por despesa individual.
+**Decisão:** o teto de categorias com periodicidade "dia" incide sobre o **agregado do dia** por categoria. Reembolso do dia = `min(soma das aceitas do dia, limite)`. Como a saída é por categoria, não é preciso ratear por despesa individual.
 **Justificativa:** o limite da política é diário, não por despesa; agregar evita depender de ordenação arbitrária.
-**Regra afetada:** RN-002, RN-003, RN-005.
+**Regra afetada:** RN-002, RN-005, RN-016.
 
 ### AMB-002 — O campo `id` conta para definir duplicidade?
 **Texto original do RH:** "Duplicatas devem ser tratadas." (decisão recebida: "todos os campos iguais")
@@ -289,13 +406,13 @@ Vale sempre `total_despesas ≥ total_aceito ≥ total_reembolso` (ver AMB-012).
 ### AMB-003 — Categoria com caixa diferente (`ALIMENTACAO`)
 **Texto original do RH:** lista de categorias em minúsculas; `d-014` vem como `ALIMENTACAO`.
 **O que não está claro:** `ALIMENTACAO` é a categoria válida ou uma categoria "diferente" e portanto não aplicável?
-**Decisão:** comparação **sem diferenciar caixa** e com _trim_; `ALIMENTACAO` é tratada como `alimentacao`.
+**Decisão:** comparação **sem diferenciar caixa** e com _trim_; `ALIMENTACAO` é tratada como `alimentacao`. As chaves de categoria da política são comparadas do mesmo modo.
 **Justificativa:** caixa é formatação de digitação, não distinção de negócio; punir o colaborador por maiúscula seria arbitrário.
 **Alternativa considerada:** correspondência estrita (recusaria `d-014` como categoria não aplicável) — descartada por ser um artefato de digitação.
 **Regra afetada:** RN-001.
 
 ### AMB-004 — Falta de nota fiscal: recusa ou apenas não reembolsa?
-**Texto original do RH:** "Nota fiscal é obrigatória acima de R$ 100."
+**Texto original do RH:** "Nota fiscal é obrigatória acima de um valor base."
 **O que não está claro:** a lista de motivos de recusa do desafio não inclui "sem nota fiscal"; o que fazer com `d-004` e `d-013`?
 **Decisão:** falta de NF obrigatória **recusa** a despesa (motivo "sem nota fiscal obrigatória"), reembolso 0, e ela não entra em `total_aceito`. A lista de motivos do enunciado é ilustrativa, não exaustiva.
 **Justificativa:** sem documento fiscal a empresa não pode reembolsar legalmente.
@@ -309,11 +426,11 @@ Vale sempre `total_despesas ≥ total_aceito ≥ total_reembolso` (ver AMB-012).
 **Regra afetada:** RN-010.
 
 ### AMB-006 — Hospedagem: "por diária" vs. "por registro"
-**Texto original do RH:** "Hospedagem tem limite de R$ 250 por diária." (decisão recebida: "250 por registro")
-**O que não está claro:** um registro de 480,00 dizendo "2 diárias" deveria ter teto de 500 (2×250) ou 250?
-**Decisão:** teto de **R$ 250 por registro**, conforme decisão recebida, independentemente de quantas diárias o texto mencione. `d-010` reembolsa 250,00.
+**Texto original do RH:** "Hospedagem tem limite por diária." (decisão recebida: "por registro")
+**O que não está claro:** um registro de 480,00 dizendo "2 diárias" deveria ter teto de 2× o limite ou 1×?
+**Decisão:** para categorias de periodicidade "diaria", o teto é **por registro** (`min(valor, limite)`), independentemente de quantas diárias o texto mencione. `d-010` reembolsa `min(480,00, limite)`.
 **Justificativa:** o input não traz número de diárias de forma estruturada e confiável; contar diárias a partir da descrição seria adivinhação. Divergência da letra do RH registrada em `DECISIONS.md`.
-**Regra afetada:** RN-004.
+**Regra afetada:** RN-003, RN-004, RN-016.
 
 ### AMB-007 — Precisão e arredondamento monetário (`33,333`)
 **Texto original do RH:** nada sobre casas decimais.
@@ -323,9 +440,9 @@ Vale sempre `total_despesas ≥ total_aceito ≥ total_reembolso` (ver AMB-012).
 **Regra afetada:** RN-011.
 
 ### AMB-008 — Onde e como o indicador de viagem é informado, e o que ele amplia
-**Texto original do RH:** "Colaborador em viagem tem limites ampliados em 50%." (decisões: usuário informa; inputs separados; se em viagem, todas as despesas do input são em viagem)
+**Texto original do RH:** "Colaborador em viagem tem limites ampliados." (decisões: usuário informa; inputs separados; se em viagem, todas as despesas do input são em viagem)
 **O que não está claro:** o exemplo não tem campo de viagem; onde ele fica e se o limiar de NF também escala.
-**Decisão:** indicador é um campo booleano de topo `em_viagem` (default `false`), válido para todo o input; amplia em 50% **apenas os três tetos de categoria**; o limiar de R$ 100 de NF **não** escala. O exemplo representa uma competência sem viagem.
+**Decisão:** indicador é um campo booleano de topo `em_viagem` (default `false`), válido para todo o input; amplia os limites de categoria pelo percentual `acrescimo_em_viagem_percentual`; o limiar de NF **não** escala. O exemplo representa uma competência sem viagem.
 **Justificativa:** viagem amplia a tolerância de gasto, não a obrigação fiscal.
 **Regra afetada:** RN-009, RN-006.
 
@@ -338,17 +455,17 @@ Vale sempre `total_despesas ≥ total_aceito ≥ total_reembolso` (ver AMB-012).
 
 ### AMB-010 — Precedência quando uma despesa viola várias regras
 **Texto original do RH:** implícito — regras coexistem.
-**O que não está claro:** `d-013` está no período mas é sem NF e acima do teto; qual motivo reportar?
-**Decisão:** ordem fixa de avaliação (Seção 8); o **primeiro** portão que falha determina o motivo. Teto só se aplica a despesas já aceitas.
+**O que não está claro:** `d-013` está no período mas é hospedagem não reembolsável e também sem NF; qual motivo reportar?
+**Decisão:** ordem fixa de avaliação (Seção 8); o **primeiro** portão que falha determina o motivo. A aplicabilidade da categoria (existência + limite > 0) vem antes de duplicata/período/valor/NF; o teto só se aplica a despesas já aceitas.
 **Justificativa:** determinismo e auditabilidade — o mesmo input sempre produz o mesmo motivo.
-**Regra afetada:** RN-001..RN-011 (ordem de aplicação).
+**Regra afetada:** RN-001..RN-017 (ordem de aplicação).
 
 ### AMB-011 — Onde reportar recusas de categoria não aplicável
 **Texto original do RH:** "para cada categoria válida ... despesas reprovadas".
 **O que não está claro:** uma despesa de `coworking` recusada não pertence a nenhuma categoria válida; sob qual categoria listá-la?
-**Decisão:** despesas recusadas por categoria não aplicável vão para uma lista separada `reprovadas_sem_categoria`; recusas de despesas com categoria válida (ex.: sem NF) ficam sob a respectiva categoria.
+**Decisão:** despesas recusadas por categoria não aplicável vão para uma lista separada `reprovadas_sem_categoria`; recusas de despesas com categoria válida (ex.: sem NF, limite ≤ 0) ficam sob a respectiva categoria.
 **Justificativa:** manter a saída por categoria válida coerente, sem inventar uma categoria "outras" reembolsável.
-**Regra afetada:** RN-012.
+**Regra afetada:** RN-012, RN-017.
 
 ### AMB-012 — `total_despesas`: valor monetário ou contagem?
 **Texto original do usuário:** "inclua total_despesas, sendo o total de despesas incluindo aceitas e reprovadas".
@@ -358,26 +475,52 @@ Vale sempre `total_despesas ≥ total_aceito ≥ total_reembolso` (ver AMB-012).
 **Alternativa considerada:** contagem de despesas — descartada por quebrar a consistência de unidade com os campos vizinhos (seria melhor nomeada `quantidade_despesas`).
 **Regra afetada:** RN-012, RN-014.
 
+### AMB-013 — Centro de custo ausente na política
+**Texto original da nova regra:** "Caso o centro de custo enviado no input não existir no objeto `centros_custo`, deve seguir a regra do objeto `padrao`."
+**O que não está claro:** o que acontece com um centro de custo desconhecido — erro, sem reembolso, ou fallback?
+**Decisão:** usa-se o objeto `padrao` da política (categorias, limites e periodicidades ali definidos). Não há erro; a avaliação segue normalmente com o conjunto padrão.
+**Justificativa:** a nova política define explicitamente `padrao` como o comportamento de fallback.
+**Regra afetada:** RN-015.
+
+### AMB-014 — Categoria com limite ≤ 0: onde reportar e qual a precedência
+**Texto original da nova regra:** "Se o limite de uma categoria for menor ou igual a zero, deve considerar como reembolso negado e o campo `motivo` da saída deve ser o parâmetro `observacao` da categoria, caso não exista observacao, motivo deve ser 'categoria não aplicável'."
+**O que não está claro:** (a) essas despesas ficam sob a própria categoria ou em `reprovadas_sem_categoria`? (b) o motivo de limite ≤ 0 prevalece sobre outros motivos (sem NF, fora do período)?
+**Decisão:** (a) ficam **sob a própria categoria** (`categorias.<cat>.reprovadas[]`), e a categoria aparece na saída com `total_aceito`/`total_reembolso` = 0; (b) o motivo de limite ≤ 0 **prevalece** — a aplicabilidade da categoria (existência + limite > 0) é avaliada logo após a normalização, antes de duplicata/período/valor/NF (esclarecimento 2026-07-31).
+**Justificativa:** a categoria está configurada para o centro de custo (só que zerada), então pertence ao conjunto válido; e "não reembolsável" é uma propriedade da categoria, que deve ser reportada antes de detalhes por registro.
+**Alternativa considerada:** reportar em `reprovadas_sem_categoria` — descartada por a categoria de fato existir no conjunto do centro de custo.
+**Regra afetada:** RN-017, RN-012, RN-014.
+
+### AMB-015 — Quais categorias aparecem no bloco `categorias`
+**Texto original da nova regra:** cada centro de custo pode ter categorias diferentes.
+**O que não está claro:** o bloco `categorias` da saída lista todas as categorias configuradas no centro de custo (mesmo sem despesas) ou só as que têm despesas?
+**Decisão:** só aparecem as categorias válidas do centro de custo **que tenham ao menos uma despesa no input**; não se emitem blocos zerados para categorias configuradas sem despesas (ex.: `representacao` em `CC-COMERCIAL` sem lançamentos não aparece) — esclarecimento 2026-07-31.
+**Justificativa:** mantém o comportamento anterior (a saída reflete o que foi lançado) e evita ruído de blocos vazios.
+**Regra afetada:** RN-012.
+
 ---
 
 ## 7. Casos de borda
 
 | Caso | Entrada (exemplo) | Comportamento esperado | Regra |
 |---|---|---|---|
-| Soma diária excede teto | `d-001` 72,50 + `d-002` 38,00 (alimentação, mesmo dia) | aceito 110,50; reembolso 60,00 | RN-002, RN-005 |
+| Soma diária excede teto (periodicidade "dia") | `d-001` 72,50 + `d-002` 38,00 (categoria "dia", mesmo dia, `CC-ENG-PLATAFORMA` limite 75) | aceito 110,50; reembolso 75,00 | RN-002, RN-004, RN-005, RN-016 |
 | Valor exatamente no limiar de NF | `d-003` 100,00 sem NF | aceita (NF não obrigatória) | RN-006 |
 | Valor um centavo acima do limiar | `d-004` 100,01 sem NF | recusada "sem nota fiscal obrigatória" | RN-006 |
-| Categoria fora da política | `d-005` `coworking` | recusada "categoria não aplicável" em `reprovadas_sem_categoria` | RN-001, RN-012 |
+| Categoria fora do conjunto do centro | `d-005` `coworking` | recusada "categoria não aplicável" em `reprovadas_sem_categoria` | RN-001, RN-012 |
+| Categoria com limite ≤ 0 | `d-010`/`d-013` `hospedagem` em `CC-ENG-PLATAFORMA` (limite 0, obs. "nao reembolsavel") | recusadas "nao reembolsavel" sob `hospedagem`; total_aceito/reembolso 0 | RN-017, AMB-014 |
+| Categoria válida só em alguns centros | `representacao` em `CC-COMERCIAL` | reembolsável em `CC-COMERCIAL`; "categoria não aplicável" nos demais | RN-001, RN-015 |
+| Centro de custo desconhecido | `centro_custo` inexistente na política | avaliado pelos limites de `padrao` | RN-015 |
 | Duplicata (só o `id` difere) | `d-006`/`d-007` | uma aceita, a outra "registro duplicado" | RN-008 |
 | Data fora do período | `d-008` 2026-04-15 | recusada "data fora da competência" | RN-007 |
 | Valor negativo | `d-009` -45,00 | recusada "valor inválido" | RN-010 |
 | Registro malformado | despesa sem `data` ou `valor` não numérico | recusada "registro inválido" em `reprovadas_sem_categoria`; demais processados | RN-013 |
-| Hospedagem acima do teto (várias diárias num registro) | `d-010` 480,00 | aceito 480,00; reembolso 250,00 | RN-004 |
+| Categoria "diaria" acima do teto (várias diárias num registro) | `d-010` 480,00 num centro com limite 250 | aceito 480,00; reembolso 250,00 | RN-003, RN-004, RN-016 |
 | Mais de 2 casas decimais | `d-011` 33,333 | arredonda para 33,33 | RN-011 |
 | Fim de semana | `d-012` sábado 47,20 | tratado como qualquer dia (sem regra de calendário) | Seção 3 |
-| Categoria em caixa alta | `d-014` `ALIMENTACAO` 61,00 | tratada como `alimentacao`; teto 60 → reembolso 60,00 | RN-001, RN-002 |
-| Data igual a `fim` | `d-014` 2026-07-31 | elegível (limite inclusivo) | RN-009 |
+| Categoria em caixa alta | `d-014` `ALIMENTACAO` 61,00 | tratada como `alimentacao` | RN-001 |
+| Data igual a `fim` | `d-014` 2026-07-31 | elegível (limite inclusivo) | RN-007, RN-009 (AMB-009) |
 | Despesa aceita mas com reembolso 0 por teto já consumido | 3ª despesa de alimentação num dia já no teto | permanece **aceita** (entra em `total_aceito`), reembolso 0 | RN-005 |
+| Limites ampliados em viagem | `em_viagem = true`, alimentação 85,00 num dia (limite 75 → 112,50) | reembolso 85,00 | RN-009 |
 
 ## 8. Ordem de aplicação das regras
 
@@ -387,56 +530,88 @@ Quando várias regras incidem sobre a mesma despesa, aplica-se nesta ordem; o
 1. **Validação estrutural** — campos obrigatórios presentes e tipados, `valor`
    numérico, `data` parseável; senão "registro inválido" (RN-013). Se o JSON de
    topo não parseia, aborta a execução.
-2. **Normalização** — arredondar `valor` para 2 casas (RN-011); aplicar `trim`
-   e caixa na `categoria` (RN-001); aplicar multiplicador de viagem aos tetos se
+2. **Resolução da política** — resolver o centro de custo (o do input ou
+   `padrao`) e carregar categorias, limites, periodicidades e parâmetros globais
+   (RN-015).
+3. **Normalização** — arredondar `valor` para 2 casas (RN-011); aplicar `trim` e
+   caixa na `categoria` (RN-001); aplicar o acréscimo de viagem aos limites se
    `em_viagem` (RN-009).
-3. **Deduplicação** — colapsar registros idênticos por campos de negócio,
+4. **Categoria válida** — a categoria normalizada pertence ao conjunto do centro
+   de custo? senão "categoria não aplicável" (RN-001), em `reprovadas_sem_categoria`.
+5. **Limite da categoria > 0** — se o `limite` da categoria for ≤ 0, recusa com
+   motivo = `observacao` (ou "categoria não aplicável"), sob a própria categoria
+   (RN-017).
+6. **Deduplicação** — colapsar registros idênticos por campos de negócio,
    mantendo a primeira ocorrência; cada cópia seguinte → "registro duplicado" (RN-008).
-4. **Categoria válida** — senão "categoria não aplicável" (RN-001).
-5. **Período** — `data` em `[inicio, fim]`; senão "data fora da competência" (RN-007).
-6. **Valor válido** — `valor > 0`; senão "valor inválido" (RN-010).
-7. **Nota fiscal** — se `valor > 100`, exige NF; senão "sem nota fiscal obrigatória" (RN-006).
-8. **Aplicação de teto** — as despesas que passaram de 1 a 7 são **aceitas**;
-   calcula-se o reembolso agregando por dia (alimentação/transporte) ou por
-   registro (hospedagem) e aplicando `min(valor, teto)` (RN-002..RN-005).
-9. **Agregação** — totais por categoria e total geral (RN-012).
+7. **Período** — `data` em `[inicio, fim]`; senão "data fora da competência" (RN-007).
+8. **Valor válido** — `valor > 0`; senão "valor inválido" (RN-010).
+9. **Nota fiscal** — se `valor > nota_fiscal_obrigatoria_acima_de`, exige NF;
+   senão "sem nota fiscal obrigatória" (RN-006).
+10. **Aplicação de teto** — as despesas que passaram de 1 a 9 são **aceitas**; o
+    `limite` vem da entrada da categoria na política do centro resolvido (RN-004) e
+    a mecânica é escolhida pela `periodicidade` (RN-016): agregando por dia civil
+    quando "dia" (RN-002) ou por registro quando "diaria" (RN-003), sempre
+    aplicando `min(soma_ou_valor, limite)` com reembolso parcial no excedente (RN-005).
+11. **Agregação** — totais por categoria e total geral (RN-012).
 
 ## 9. Critérios de aceite
 
 O sistema está pronto quando:
 
-- [ ] Para o input de `exemplos/despesas-exemplo.json` com `em_viagem = false`, a
-      saída é exatamente a do exemplo da Seção 4 (totais e recusas por categoria,
-      `total_reembolso_geral = 585,43`).
-- [ ] Cada uma das 14 regras (RN-001..RN-014) tem ao menos um teste com números.
+- [ ] Para o input de `exemplos/despesas-exemplo.json` (centro `CC-ENG-PLATAFORMA`)
+      com `em_viagem = false`, a saída é exatamente a do exemplo da Seção 4
+      (totais e recusas por categoria, `total_reembolso_geral = 351,43`).
+- [ ] Categorias, limites, periodicidade, limiar de NF e acréscimo de viagem são
+      lidos da política externa, não codificados; um centro de custo desconhecido
+      cai em `padrao` (RN-015).
+- [ ] Nenhuma categoria é conhecida ou privilegiada pelo sistema: o teto de cada
+      categoria vem de `politica[<CC>][<categoria>].limite` (RN-004) e a mecânica
+      da `periodicidade` (RN-002/RN-003) é escolhida pelo valor lido da política,
+      não pelo nome da categoria. Adicionar uma categoria à política a torna
+      reembolsável, removê-la a torna "categoria não aplicável", e mudar seu
+      `limite`/`periodicidade` muda o resultado — tudo **sem alterar regra ou
+      código** (RN-001, RN-004, RN-015, RN-016).
+- [ ] Cada uma das 17 regras (RN-001..RN-017) tem ao menos um teste com números.
 - [ ] A saída ecoa `colaborador` (`id`, `nome`, `centro_custo`) e `periodo`
       (`inicio`, `fim`) do input.
 - [ ] Em toda categoria vale `total_despesas ≥ total_aceito ≥ total_reembolso`, e
-      `total_despesas` inclui o `valor` das despesas reprovadas da categoria, mas
-      **exclui valores ≤ 0** (ex.: `transporte_urbano` = 200,01, sem o estorno
-      `d-009` de −45,00).
+      `total_despesas` inclui o `valor` das despesas reprovadas da categoria
+      (inclusive por limite ≤ 0), mas **exclui valores ≤ 0** (ex.:
+      `transporte_urbano` = 200,01, sem o estorno `d-009` de −45,00).
+- [ ] Uma categoria com limite ≤ 0 recusa suas despesas com motivo igual à
+      `observacao` (ou "categoria não aplicável" quando não houver), sob a própria
+      categoria, e esse motivo prevalece sobre sem NF/fora do período.
+- [ ] O bloco `categorias` lista apenas categorias válidas do centro com ao menos
+      uma despesa; categorias configuradas sem despesas não aparecem.
 - [ ] Cada despesa recusada traz um dos motivos: "categoria não aplicável",
       "data fora da competência", "registro duplicado", "sem nota fiscal
-      obrigatória", "valor inválido", "registro inválido".
+      obrigatória", "valor inválido", "registro inválido", ou a `observacao` da
+      categoria (limite ≤ 0).
 - [ ] Um registro malformado é recusado ("registro inválido") sem impedir o
       processamento das demais despesas do input.
-- [ ] Valor 100,00 sem NF é aceito e 100,01 sem NF é recusado.
+- [ ] Valor no limiar de NF sem NF é aceito e um centavo acima sem NF é recusado.
 - [ ] Uma despesa aceita cujo reembolso foi limitado pelo teto continua contando
       em `total_aceito` com seu valor cheio.
-- [ ] Com `em_viagem = true`, os três tetos passam a 90 / 120 / 375 e o limiar de
-      NF continua em 100,00.
+- [ ] Com `em_viagem = true`, os limites de cada categoria do centro escalam pelo
+      `acrescimo_em_viagem_percentual` (na v4, ×1,5) e o limiar de NF permanece
+      inalterado; categorias com limite ≤ 0 continuam não reembolsáveis.
 - [ ] Todos os valores de saída têm exatamente 2 casas decimais.
 - [ ] O resultado é determinístico: o mesmo input produz sempre a mesma saída.
 
 ## 10. O que fica em aberto
 
 - **Diárias reais de hospedagem:** o input não estrutura número de diárias, então
-  o teto é por registro (AMB-006). Se no futuro o input trouxer `qtd_diarias`, a
-  regra deve ser revista para teto por diária, e isso exige nova entrada em
+  o teto de categorias "diaria" é por registro (AMB-006). Se no futuro o input
+  trouxer `qtd_diarias`, a regra deve ser revista, e isso exige nova entrada em
   `DECISIONS.md`.
 - **Duplicata parcial:** registros "quase iguais" (mesmo dia/fornecedor/valor,
   descrições diferentes) **não** são considerados duplicados nesta versão. Decisão
   provisória: só duplicidade exata conta; casos suspeitos passam como aceitos.
+- **Validação da política externa:** assume-se que o arquivo de política está bem
+  formado e vigente; não há verificação de consistência (limites negativos além
+  de 0, periodicidades desconhecidas, versão/vigência) nesta versão.
+- **Câmbio:** a política declara `moeda_base` BRL e há um arquivo de câmbio no
+  ambiente, mas conversão de moeda continua fora de escopo até haver requisito.
 - **Moeda e fuso:** assume-se BRL e datas civis sem fuso horário; multi-moeda e
   fuso ficam fora até haver requisito.
 - **Vários inputs de uma mesma competência (viagem + não-viagem):** cada input é

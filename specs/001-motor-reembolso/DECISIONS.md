@@ -10,6 +10,135 @@ Ordem cronológica inversa: a mais recente primeiro.
 
 ---
 
+## D-006 — Regras de teto agnósticas de categoria (RN-002/003/004 por papel) · `2026-07-31`
+
+**Gatilho:** pedido do usuário via `/speckit-specify`: o sistema não deve conhecer
+nem citar categorias específicas (`alimentacao`, `transporte_urbano`, `hospedagem`).
+Todas as categorias, limites e periodicidades devem sair de `politica-v4.json`, e o
+motor deve funcionar sem alteração diante de mudanças na política (limite/periodicidade
+alterados, categorias novas ou removidas).
+
+**Decisão de estrutura (escolhida com o usuário):** manter os três IDs RN-002/003/004
+(mínimo impacto em `tasks.md` e nos testes nomeados por RN), reescrevendo cada um por
+**papel**, sem nome de categoria:
+- **RN-002 — Teto de periodicidade "dia"**: `min(soma_do_dia, limite)` para qualquer
+  categoria cuja `periodicidade` seja "dia". Absorve o antigo teto de transporte.
+- **RN-003 — Teto de periodicidade "diaria"**: `min(valor, limite)` por registro para
+  qualquer categoria "diaria". Deixa de ser "teto de transporte" e passa a ser a
+  mecânica por registro (antes só em RN-004/hospedagem).
+- **RN-004 — Origem do teto**: o `limite` vem de `politica[<CC>][<categoria>].limite`
+  (RN-015); nenhuma categoria tem limite embutido no código. Deixa de ser "teto de
+  hospedagem".
+
+**O que mudou na spec (versão 1.2 → 1.3):**
+- **RN-002/003/004** reescritas por papel (acima); nenhuma cita categoria como regra —
+  só como exemplo do que a política vigente traz.
+- **RN-016** reposicionada como **classificação**: o valor de `periodicidade` seleciona
+  a mecânica (RN-002 ou RN-003) sem o sistema conhecer o nome da categoria.
+- **AMB-001** (agregação diária) → afeta RN-002 (não mais RN-003); **AMB-006**
+  (hospedagem por registro) → afeta RN-003/RN-004.
+- Seção 7 (bordas): linhas de teto reescritas por periodicidade; Seção 8 (passo 10)
+  descreve limite via RN-004 + mecânica via RN-016 (RN-002/RN-003).
+- Seção 9 (aceite): novo critério de que nenhuma categoria é conhecida/privilegiada e
+  que adicionar/remover/alterar categoria na política muda o resultado sem tocar código.
+- Clarifications: nova entrada Session 2026-07-31 registrando a generalização.
+
+**Por quê:** a v1.2 externalizou a política (RN-015/016/017), mas RN-002/003/004 ainda
+enunciavam categorias fixas — uma inconsistência com o objetivo de política dirigir tudo.
+Generalizar por papel remove o último acoplamento de regra a categoria.
+
+**O que isso invalida na implementação:** `politica.py` e `regras.py` ainda embutem
+`CATEGORIAS_VALIDAS`, `LIMITES_DIARIOS`, `LIMITE_HOSPEDAGEM`, `ORDEM_CATEGORIAS` e
+funções separadas `aplica_teto_diario`/`aplica_teto_hospedagem`, e **não leem**
+`politica-v4.json`. Tudo isso precisa passar a derivar da política (limite/periodicidade
+por categoria do CC resolvido) via `/speckit-plan` → `/speckit-tasks` →
+`/speckit-implement`. **Este passo alterou apenas `spec.md`, `checklists/requirements.md`
+e este log.**
+
+**Tasks afetadas:** teto passa a ser dirigido por `periodicidade` da política (uma
+mecânica "dia", uma "diaria") sobre um conjunto **dinâmico** de categorias; testes
+`test_rn_002/003/004` re-expressos por papel, não por categoria; agregação/ordem de
+categorias na saída derivada da política, não de `ORDEM_CATEGORIAS` fixo.
+
+**Custo:** 3 arquivos (`spec.md`, `checklists/requirements.md`, `DECISIONS.md`); na
+spec, ~9 blocos (RN-002/003/004, RN-016, AMB-001, AMB-006, Seções 7/8/9, Clarifications).
+
+---
+
+## D-005 — Política externa por centro de custo (`politica-v4.json`) · `2026-07-31`
+
+**Gatilho:** pedido do usuário via `/speckit-specify`: as categorias, limites e o
+tratamento de viagem/nota fiscal deixam de ser fixos e passam a ser lidos de um
+arquivo externo (`src/informacoes_externas/politica-v4.json`), podendo variar por
+**centro de custo**.
+
+**O que mudou na spec (versão 1.1 → 1.2):**
+- **Nova RN-015 — Política externa e resolução de centro de custo**: categorias,
+  limites, periodicidade, limiar de NF e acréscimo de viagem vêm do arquivo; se o
+  `centro_custo` do input não existe em `centros_custo`, usa-se o objeto `padrao`.
+- **Nova RN-016 — Periodicidade do limite**: `"dia"` (limite sobre a soma da
+  categoria por dia civil) vs `"diaria"` (limite por registro). Generaliza o
+  mecanismo antes embutido em RN-002/003 (dia) e RN-004 (registro).
+- **Nova RN-017 — Categoria com limite ≤ 0 (não reembolsável)**: recusa toda
+  despesa da categoria com `motivo` = `observacao` (ou "categoria não aplicável"
+  se ausente), reembolso 0, reportada **sob a própria categoria**.
+- **RN-001** reescrita: categorias válidas = chaves do conjunto do centro de custo
+  resolvido (não mais um trio fixo `alimentacao`/`transporte_urbano`/`hospedagem`).
+- **RN-002/003/004** reescritas: o teto agora é o `limite` da política do centro
+  de custo (o `padrao` mantém 60/80/250); cada uma referencia sua periodicidade.
+- **RN-006** (limiar de NF) e **RN-009** (acréscimo de viagem) passam a ler
+  `nota_fiscal_obrigatoria_acima_de` e `acrescimo_em_viagem_percentual` do arquivo.
+- Seção 2 (Objetivo), Seção 3 (Fora de escopo), Seção 4 (nova tabela da política
+  externa + tabela de saída ajustada) e Seção 8 (ordem de aplicação: novo passo 2
+  "Resolução da política" e passo 5 "Limite da categoria > 0", renumerando os
+  demais) atualizadas.
+- Seção 7 (casos de borda): novas linhas para limite ≤ 0, categoria só-em-alguns-
+  centros e centro de custo desconhecido.
+- Seção 9 (critérios de aceite): contagem de regras 14 → **17** (RN-001..RN-017) e
+  novos critérios para política externa, limite ≤ 0 e viagem parametrizada.
+- **Exemplo da Seção 4 recalculado** para `CC-ENG-PLATAFORMA` (alimentação limite
+  **75**, hospedagem limite **0**): `alimentacao.total_reembolso` 255,43 → **271,43**
+  (07-03 vai a 75, 07-31 a 61); `hospedagem` fica não reembolsável (aceito/reembolso
+  0, `d-010`/`d-013` → "nao reembolsavel"); **`total_reembolso_geral` 585,43 → 351,43**.
+
+**Três ambiguidades resolvidas com o usuário (Clarifications Session 2026-07-31):**
+- **AMB-013** — centro de custo ausente na política → fallback para `padrao`.
+- **AMB-014** — despesa de categoria com limite ≤ 0: (a) reportada **sob a própria
+  categoria** e (b) esse motivo **prevalece** — a aplicabilidade da categoria
+  (existência + limite > 0) é avaliada **antes** de duplicata/período/valor/NF.
+- **AMB-015** — o bloco `categorias` lista **apenas** categorias válidas do centro
+  **com ao menos uma despesa** no input (sem blocos zerados).
+
+**Por quê:** tirar a política de dentro do código torna limites e categorias
+configuráveis por RH sem alterar o motor, e o modelo por centro de custo reflete
+que times diferentes têm tetos e categorias diferentes (ex.: `representacao` só em
+`CC-COMERCIAL`; hospedagem bloqueada em `CC-ENG-PLATAFORMA`).
+
+**O que isso invalidou:** o pressuposto (D-003/D-004 e anteriores) de três
+categorias fixas com limites 60/80/250 embutidos — agora esses são apenas os
+valores do objeto `padrao`. O exemplo de saída anterior (`total_reembolso_geral`
+585,43) foi substituído. RN-002/003/004 deixam de citar valores literais como
+regra e passam a apontar para a política.
+
+**O que isso invalida na implementação:** `politica.py`/`regras.py` têm categorias
+e limites fixos e não leem o arquivo externo; `io_json.py` não carrega a política;
+a saída assume sempre três categorias. Tudo isso precisa ser refeito via
+`/speckit-plan` → `/speckit-tasks` → `/speckit-implement`. Há também um
+`cambio.json` no mesmo diretório, mas câmbio permanece **fora de escopo** (Seção
+3/10). **Este passo alterou apenas `spec.md`, `checklists/requirements.md` e este log.**
+
+**Tasks afetadas:** nova carga de leitura/validação da política e resolução do
+centro de custo; agregação por conjunto dinâmico de categorias; portão de limite ≤ 0
+antes da deduplicação; golden de integração recalculado para `total_reembolso_geral
+= 351,43`. `plan.md`/`data-model.md`/`quickstart.md`/`tasks.md` ainda assumem o
+modelo fixo e serão regenerados.
+
+**Custo:** 3 arquivos (`spec.md`, `checklists/requirements.md`, `DECISIONS.md`);
+na spec, ~10 blocos (3 RNs novas, 5 RNs reescritas, 3 AMBs novas, Seções 2/3/4/7/8/9
+e o exemplo JSON).
+
+---
+
 ## D-004 — `total_despesas` ignora valores ≤ 0 na somatória · `2026-07-30`
 
 **Gatilho:** pedido do usuário via `/speckit-specify`: "para o parâmetro

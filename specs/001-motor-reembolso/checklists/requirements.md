@@ -1,7 +1,7 @@
 # Specification Quality Checklist: Motor de Cálculo de Reembolso
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
-**Created**: 2026-07-30
+**Created**: 2026-07-30 · **Atualizado**: 2026-07-31 (regras de teto agnósticas de categoria)
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
@@ -34,6 +34,19 @@
 - As ambiguidades da política de RH foram resolvidas por decisão própria (conforme
   o enunciado do desafio) e registradas na Seção 6 (AMB-001..AMB-011), em vez de
   virarem marcadores [NEEDS CLARIFICATION].
+- Atualização 2026-07-31: novas regras de política externa (`politica-v4.json`) e
+  centros de custo adicionaram RN-015 (fonte externa + fallback `padrao`), RN-016
+  (periodicidade "dia"/"diaria") e RN-017 (limite ≤ 0 não reembolsável). Três
+  pontos ambíguos foram resolvidos com o usuário (Clarifications Session
+  2026-07-31) e encodados em AMB-013, AMB-014 e AMB-015.
+- O exemplo da Seção 4 foi recalculado para `CC-ENG-PLATAFORMA` (alimentação
+  limite 75, hospedagem limite 0): `total_reembolso_geral` = 351,43.
+- Atualização 2026-07-31 (spec 1.2 → 1.3, ver DECISIONS D-006): RN-002/003/004
+  deixaram de citar categorias fixas e foram reescritas por **papel** — RN-002 teto
+  de periodicidade "dia", RN-003 teto de periodicidade "diaria", RN-004 origem do
+  teto (limite pela política). Nenhuma regra conhece nome de categoria; o conjunto,
+  limites e periodicidades vêm inteiramente de `politica-v4.json` e mudam o resultado
+  sem alteração de código. Novo critério de aceite na Seção 9 cobre essa resiliência.
 - A divergência da letra do RH em hospedagem ("por diária" → "por registro",
   AMB-006) deve ser registrada em `DECISIONS.md` na fase de plano/implementação.
 - Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`.
