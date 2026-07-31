@@ -1,7 +1,7 @@
 # Specification Quality Checklist: Motor de Cálculo de Reembolso
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
-**Created**: 2026-07-30 · **Atualizado**: 2026-07-31 (regras de teto agnósticas de categoria)
+**Created**: 2026-07-30 · **Atualizado**: 2026-07-31 (conversão de câmbio e viagem por moeda)
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
@@ -47,6 +47,14 @@
   teto (limite pela política). Nenhuma regra conhece nome de categoria; o conjunto,
   limites e periodicidades vêm inteiramente de `politica-v4.json` e mudam o resultado
   sem alteração de código. Novo critério de aceite na Seção 9 cobre essa resiliência.
+- Atualização 2026-07-31 (spec 1.3 → 1.4, ver DECISIONS D-007): novas RN-018/019/020
+  de câmbio (`cambio.json`) — conversão para a base, taxa por data mais próxima
+  (empate → menor) e "cambio não identificado"; RN-009 reescrita para **viagem por
+  registro** (moeda ≠ base), sem `em_viagem` no input nem na saída; NF avaliada após a
+  conversão; dia "dia" misto por **baldes separados**. Três decisões fechadas com o
+  usuário (AMB-016/017/018) e o `despesas-envelope.json` usado para validar os casos
+  (GBP não identificado, EUR em fim de semana, registro sem `moeda`). Conjunto de
+  regras 17 → 20.
 - A divergência da letra do RH em hospedagem ("por diária" → "por registro",
   AMB-006) deve ser registrada em `DECISIONS.md` na fase de plano/implementação.
 - Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`.

@@ -10,6 +10,65 @@ Ordem cronológica inversa: a mais recente primeiro.
 
 ---
 
+## D-007 — Conversão de câmbio (`cambio.json`) e viagem por moeda · `2026-07-31`
+
+**Gatilho:** pedido do usuário via `/speckit-specify`: despesas podem vir em moeda
+estrangeira e devem ser convertidas para a moeda base por uma tabela de câmbio externa
+(`src/informacoes_externas/cambio.json`); e a condição de "em viagem" deixa de ser um
+input e passa a ser derivada **por registro** (moeda ≠ base).
+
+**O que mudou na spec (versão 1.3 → 1.4):**
+- **Novas RN-018/019/020:** conversão para a base (RN-018), resolução da taxa por data
+  com data mais próxima e desempate pela menor taxa (RN-019), e recusa
+  "cambio não identificado" para moeda ausente de todas as `taxas` (RN-020). O conjunto
+  passou de 17 para **20 regras**.
+- **RN-009 reescrita:** viagem é **por registro** (moeda ≠ `moeda_base` do câmbio); some
+  o `em_viagem` de input; o acréscimo incide sobre o valor já convertido; a `moeda_base`
+  de referência é a do `cambio.json` (a da política é ignorada).
+- **RN-006:** o limiar de NF é comparado contra o **valor convertido** (NF após conversão).
+- **RN-008:** a chave de duplicidade inclui a `moeda` de origem.
+- **RN-011:** arredondamento da conversão (origem → ×taxa → resultado, half-up).
+- **RN-002:** dia misto viagem/não-viagem usa **baldes separados**.
+- **Seção 4:** nova coluna `despesas[].moeda` (opcional), remoção do `em_viagem` de
+  input e de saída, nova tabela do `cambio.json`, totais declarados em moeda base, e
+  nota de conversão para o `despesas-envelope.json`.
+- **Seção 8:** novo passo 6 "Conversão de câmbio" (após validade da categoria/limite,
+  antes de duplicata/período/valor/NF), NF passa a usar o valor convertido, teto com
+  limite amplificado por registro e baldes no "dia".
+- **Novas AMB-016/017/018** e **AMB-008 marcada como substituída** (viagem por moeda).
+- **Seção 9:** critérios de câmbio, viagem por registro, baldes e "cambio não
+  identificado"; motivo novo na lista; contagem 17 → 20. **Seção 10:** câmbio sai de
+  "em aberto" (agora implementado por `cambio.json`), resta a não-validação do arquivo.
+
+**Decisões tomadas com o usuário (Clarifications Session 2026-07-31 — câmbio e viagem):**
+- **AMB-016** — dia "dia" misto → **baldes separados**; saída **remove** `em_viagem`.
+- **AMB-017** — "cambio não identificado" fica **sob a categoria** (se válida) e é
+  **excluído de `total_despesas`**; busca de data mais próxima irrestrita, empate → menor.
+- **AMB-018** — arredonda origem (2c) → × taxa cheia → arredonda resultado (2c).
+
+**Contexto do envelope:** o `despesas-envelope.json` (CC-COMERCIAL) foi usado para
+validar: `e-006` GBP não está em nenhuma `taxas` (→ "cambio não identificado"); `e-004`
+EUR num sábado (→ data mais próxima 07-17); `e-010` sem `moeda` (→ base, não viagem).
+O arquivo **não** contém dia+categoria com moedas mistas, então o teto de dia misto é
+uma regra de robustez (não exercitada pelos goldens atuais).
+
+**O que isso invalida na implementação:** `io_json.py`/`cli.py` não leem `cambio.json`
+nem aceitam `moeda`; `regras.py`/`politica.py` não convertem, tratam viagem como flag de
+input e não têm gate de câmbio; a saída ainda emite `em_viagem`. Tudo isso precisa ser
+refeito via `/speckit-plan` → `/speckit-tasks` → `/speckit-implement`. **Este passo
+alterou apenas `spec.md`, `checklists/requirements.md` e este log.**
+
+**Tasks afetadas:** leitura/validação do `cambio.json`; parsing do campo `moeda`; gate de
+conversão e "cambio não identificado" na ordem nova; NF sobre valor convertido; viagem e
+teto por registro com baldes; remoção de `em_viagem` do contrato de saída; golden do
+`despesas-envelope.json` calculado no plano/quickstart.
+
+**Custo:** 3 arquivos (`spec.md`, `checklists/requirements.md`, `DECISIONS.md`); na spec,
+~20 blocos (3 RNs novas, 5 RNs reescritas, 3 AMBs novas + 1 substituída, Seções 2/3/4/7/8/9/10
+e o exemplo).
+
+---
+
 ## D-006 — Regras de teto agnósticas de categoria (RN-002/003/004 por papel) · `2026-07-31`
 
 **Gatilho:** pedido do usuário via `/speckit-specify`: o sistema não deve conhecer
