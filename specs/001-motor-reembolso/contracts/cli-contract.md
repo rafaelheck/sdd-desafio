@@ -1,75 +1,81 @@
 # Contrato da CLI — `calcular`
 
-Interface pública do sistema. É o único ponto de contato com o usuário.
+Interface pública do sistema (spec 1.4). Único ponto de contato com o usuário.
+Mudanças desde 1.1: **removido `--em-viagem`** (viagem é por registro, RN-009);
+**adicionados** `--politica`/`--cambio` (opcionais); a saída **não** tem mais `em_viagem`;
+o câmbio ausente/inválido **aborta**.
 
 ## Invocação
 
 ```
-calcular --input <arquivo.json> --output <arquivo.json> [--em-viagem]
+calcular --input <arquivo.json> --output <arquivo.json> [--politica <arquivo.json>] [--cambio <arquivo.json>]
 ```
 
 Em desenvolvimento (sem instalar o console script):
 
 ```
-python -m src --input <arquivo.json> --output <arquivo.json> [--em-viagem]
+python -m src --input <arquivo.json> --output <arquivo.json> [--politica ...] [--cambio ...]
 ```
 
 ## Argumentos
 
 | Argumento | Obrigatório | Tipo | Default | Significado |
 |---|---|---|---|---|
-| `--input` | sim | caminho | — | Arquivo JSON de entrada com colaborador, período e despesas |
-| `--output` | sim | caminho | — | Arquivo JSON a ser escrito com o resultado |
-| `--em-viagem` | não | flag booleana | `false` | Se presente, aplica limites ampliados em 50% (RN-009) a todas as despesas do input |
+| `--input` | sim | caminho | — | JSON de entrada: colaborador, período e despesas |
+| `--output` | sim | caminho | — | JSON a ser escrito com o resultado |
+| `--politica` | não | caminho | `src/informacoes_externas/politica-v4.json` | Política externa de categorias/limites por CC (RN-015) |
+| `--cambio` | não | caminho | `src/informacoes_externas/cambio.json` | Tabela de câmbio: `moeda_base` + `taxas` por data (RN-018) |
 
-- `--em-viagem` é `store_true`: presença = `true`, ausência = `false`. Não recebe valor.
-- O valor de `--em-viagem` sobrepõe/define `em_viagem`; se o input também trouxer
-  `em_viagem`, a flag da CLI é a fonte de verdade (o usuário informa em viagem —
-  AMB-008). *(Decisão de plano; se preferir que o campo do JSON vença, é troca de 1 linha.)*
+- Sem regra de negócio na CLI. Os defaults resolvem os arquivos empacotados relativos ao pacote `src`.
+- Não há mais flag `--em-viagem`; a condição de viagem é derivada por registro pela `moeda` (RN-009).
 
 ## Entrada (arquivo `--input`)
 
-Estrutura conforme `exemplos/despesas-exemplo.json` e Seção 4 da spec:
+Conforme `exemplos/despesas-exemplo.json`, `exemplos/despesas-envelope.json` e Seção 4:
 `colaborador{id,nome,centro_custo}`, `periodo{competencia,inicio,fim}`,
-`despesas[]{id,data,categoria,descricao,fornecedor,valor,tem_nota_fiscal}`.
-O campo de topo `em_viagem` é opcional.
+`despesas[]{id,data,categoria,descricao,fornecedor,valor,tem_nota_fiscal, moeda?}`.
+O campo `despesas[].moeda` é **opcional** (ausente/`null`/vazio = moeda base, sem conversão).
+**Não** há mais campo de topo `em_viagem`.
 
 ## Saída (arquivo `--output`)
 
-JSON conforme o exemplo da Seção 4 da spec. Contrato resumido:
+JSON conforme os exemplos das Seções 4 da spec. Contrato resumido (categorias **dinâmicas** por CC):
 
 ```json
 {
   "colaborador": { "id": "…", "nome": "…", "centro_custo": "…" },
   "competencia": "YYYY-MM",
   "periodo": { "inicio": "YYYY-MM-DD", "fim": "YYYY-MM-DD" },
-  "em_viagem": false,
   "categorias": {
-    "alimentacao":       { "total_despesas": 0.00, "total_aceito": 0.00, "total_reembolso": 0.00, "reprovadas": [ { "id": "…", "motivo": "…" } ] },
-    "transporte_urbano": { "total_despesas": 0.00, "total_aceito": 0.00, "total_reembolso": 0.00, "reprovadas": [] },
-    "hospedagem":        { "total_despesas": 0.00, "total_aceito": 0.00, "total_reembolso": 0.00, "reprovadas": [] }
+    "<categoria válida do CC com ≥1 despesa>": {
+      "total_despesas": 0.00, "total_aceito": 0.00, "total_reembolso": 0.00,
+      "reprovadas": [ { "id": "…", "motivo": "…" } ]
+    }
   },
   "reprovadas_sem_categoria": [ { "id": "…", "categoria_informada": "…", "motivo": "…" } ],
   "total_reembolso_geral": 0.00
 }
 ```
 
-- Todos os valores monetários com **exatamente 2 casas decimais**.
+- **Sem** campo `em_viagem`.
+- Todos os valores monetários com **exatamente 2 casas decimais**, na **moeda base** (BRL) já convertida.
 - Acentos preservados (UTF-8, sem escape).
-- As três categorias válidas sempre presentes, mesmo com totais zerados.
-- Motivos possíveis: `categoria não aplicável`, `data fora da competência`,
-  `registro duplicado`, `sem nota fiscal obrigatória`, `valor inválido`,
-  `registro inválido`.
+- O bloco `categorias` lista **só** as categorias válidas do CC com ≥1 despesa (AMB-015), na ordem das
+  chaves do CC resolvido na política (DT-011). Categorias configuradas sem despesas não aparecem.
+- Motivos possíveis: `categoria não aplicável`, `data fora da competência`, `registro duplicado`,
+  `sem nota fiscal obrigatória`, `valor inválido`, `registro inválido`, `cambio não identificado`, ou a
+  `observacao` da categoria (limite ≤ 0).
 
 ## Códigos de saída
 
 | Código | Situação |
 |---|---|
-| `0` | Sucesso: resultado escrito em `--output` (mesmo que haja despesas reprovadas) |
-| `2` | Erro de uso: argumento obrigatório ausente/ inválido (padrão do `argparse`) |
-| `1` | Erro irrecuperável de entrada: arquivo `--input` inexistente, JSON de topo inparseável, ou campos de topo obrigatórios ausentes (RN-013). Mensagem em `stderr`, nada escrito em `--output` |
+| `0` | Sucesso: resultado escrito em `--output` (mesmo com despesas reprovadas) |
+| `2` | Erro de uso: argumento obrigatório ausente/inválido (padrão do `argparse`) |
+| `1` | Erro irrecuperável: `--input`, `--politica` ou `--cambio` inexistente ou com JSON inparseável; JSON de topo do input inválido; ou campos de topo obrigatórios ausentes (RN-013, RN-018). Mensagem em `stderr`, nada escrito em `--output` |
 
-- Registro de despesa malformado **não** aborta: vira `registro inválido` em
-  `reprovadas_sem_categoria` e a execução termina com código `0` (RN-013).
-- Erros e mensagens vão para `stderr`; `stdout` fica livre (a saída de dados vai
-  para o arquivo `--output`).
+- Registro de despesa malformado **não** aborta: vira `registro inválido` em `reprovadas_sem_categoria`,
+  execução termina com `0` (RN-013).
+- Uma `moeda` sem taxa em todo o câmbio **não** aborta: vira `cambio não identificado` por registro
+  (RN-020). Já o **arquivo** de câmbio ausente/inparseável aborta com `1` (RN-018).
+- Erros vão para `stderr`; `stdout` fica livre (dados vão para `--output`).

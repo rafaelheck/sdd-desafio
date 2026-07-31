@@ -1,192 +1,234 @@
 # Plano Técnico — Motor de Cálculo de Reembolso
 
-**Versão:** 1.1 · **Baseado na spec:** 1.1 (inclui Clarifications 2026-07-30, D-003 e D-004)
+**Versão:** 1.4 · **Baseado na spec:** 1.4 (Clarifications 2026-07-30 e 2026-07-31;
+D-003..D-007). Substitui o plano 1.1, que assumia política embutida em código,
+categorias fixas e viagem por flag de CLI.
 
 > Aqui mora o COMO. Este arquivo pode e deve falar de linguagem, biblioteca e
 > arquitetura. O que ele **não** pode é introduzir regra de negócio nova — se
 > apareceu uma, ela pertence à `spec.md`.
 
-**Constitution Check:** `.specify/memory/constitution.md` está no estado de
-template (sem princípios preenchidos). Não há gate de governança a violar; se a
-constituição for ratificada depois, este plano deve ser reavaliado.
+**Constitution Check:** `.specify/memory/constitution.md` está no estado de template
+(princípios não preenchidos). Não há gate de governança a violar. As convenções
+efetivas vêm de `CLAUDE.md` (núcleo puro sem I/O; uma função por RN; um teste por RN;
+`Decimal` sempre; regra de negócio só na spec) e são respeitadas por este plano. Se a
+constituição for ratificada depois, reavaliar.
 
 ---
 
+## 0. O que mudou desde o plano 1.1 (gap a fechar)
+
+O código atual (`src/`) implementa a spec 1.0/1.1 e diverge da spec 1.4 em cinco frentes:
+
+| Frente | Hoje no código | Exigido pela spec 1.4 |
+|---|---|---|
+| Política | `politica.py` com constantes fixas (`LIMITES_DIARIOS`, `CATEGORIAS_VALIDAS`, ...) | Ler `politica-v4.json`; categorias/limites/periodicidade por centro de custo, com `padrao` (RN-015/016/017); nenhuma categoria embutida (RN-001/004) |
+| Categorias | trio fixo `alimentacao/transporte_urbano/hospedagem` (enum `Categoria`, `ORDEM_CATEGORIAS`) | conjunto **dinâmico** por CC; teto por **periodicidade**, não por nome (RN-002/003/004/016) |
+| Viagem | flag de CLI `--em-viagem`, por input inteiro; campo `em_viagem` na saída | **por registro**, derivada da moeda (RN-009); sem `--em-viagem`; sem `em_viagem` na saída |
+| Câmbio | inexistente | ler `cambio.json`; converter por data (RN-018/019); "cambio não identificado" (RN-020) |
+| Nota fiscal | compara `valor` de entrada | compara **valor convertido** (RN-006, após conversão) |
+
+Este plano redesenha as fronteiras para acomodar as duas fontes externas mantendo o
+núcleo puro.
+
 ## 1. Stack
 
-| Escolha | O quê | Por quê | O que descartei e por quê |
+| Escolha | O quê | Por quê | Descartado |
 |---|---|---|---|
-| Linguagem | Python 3.13.x | Requisito do usuário; stdlib rica (`json`, `argparse`, `decimal`, `datetime`) cobre tudo sem dependências | — |
-| Testes | `pytest` | Parametrização ergonômica para mapear um teste por `RN-NNN` e por caso de borda | `unittest` — mais verboso para tabelas de casos |
-| Parsing/validação | stdlib `json` + `argparse`, validação manual em módulo próprio | Zero dependências de runtime; controle explícito das mensagens de recusa (a spec exige motivos textuais precisos) | `pydantic` — esconderia a validação de regra que o usuário pediu para deixar explícita e separada |
-| Aritmética monetária | `decimal.Decimal`, `quantize(0.01, ROUND_HALF_UP)` | Dinheiro não pode usar ponto flutuante binário; `ROUND_HALF_UP` é exatamente a RN-011 | `float` — erro de arredondamento previsível; descartado |
+| Linguagem | Python 3.13.x | Requisito; stdlib (`json`, `argparse`, `decimal`, `datetime`) cobre tudo sem dependências | — |
+| Testes | `pytest` | Um teste por `RN-NNN` + tabela de bordas; auditoria de cobertura de RN | `unittest` (verboso) |
+| Parsing/validação | stdlib `json` + `argparse`, validação manual | Zero dependências; mensagens de recusa explícitas | `pydantic` (esconderia a validação que é regra) |
+| Dinheiro | `decimal.Decimal`, `quantize(0.01, ROUND_HALF_UP)`, JSON lido com `parse_float=Decimal` | RN-011; conversão de câmbio precisa de centavo exato | `float` (erro binário) |
 
-> **Detalhe crítico de aritmética:** os valores monetários são lidos do JSON já
-> como `Decimal` (via `json.load(..., parse_float=Decimal)`), **nunca** como
-> `float`. Isso evita que `33.333` vire `33.33299999…` antes do `quantize`.
+> **Aritmética crítica:** valores e **taxas** de câmbio são lidos como `Decimal` (via
+> `parse_float=Decimal`), nunca `float`. A conversão (RN-018/AMB-018) arredonda o valor
+> de origem a 2 casas, multiplica pela **taxa cheia** e arredonda o resultado a 2 casas.
 
 ## 2. Arquitetura
 
-Duas camadas: um **núcleo puro** de regra de negócio (sem I/O, determinístico) e
-uma **casca de I/O** (CLI, leitura/escrita de arquivo, serialização).
+Duas camadas: **núcleo puro** (regra de negócio, determinístico, sem I/O) e **casca de
+I/O** (CLI, leitura de 3 arquivos JSON, serialização). As duas fontes externas
+(`politica-v4.json`, `cambio.json`) são lidas na casca e **injetadas já parseadas** no
+núcleo — o núcleo nunca abre arquivo.
 
 ```
-calcular --input --output [--em-viagem]
+calcular --input despesas.json --output resultado.json
+         [--politica ...] [--cambio ...]
         │
         ▼
-   cli.py (argparse)                 ── casca de I/O
+   cli.py (argparse)                         ── casca de I/O
         │
         ▼
-   io_json.py  ── lê JSON (parse_float=Decimal), valida estrutura, serializa saída
-        │  Despesa[] + contexto
+   io_json.py  ── lê input, politica-v4.json e cambio.json (parse_float=Decimal);
+        │         valida topo; ABORTA se input/política/câmbio ausentes ou inparseáveis
+        │         (RN-013, RN-018); serializa a saída
+        │  Entrada{despesas_brutas, colaborador, periodo} + Politica + Cambio
         ▼
-   calculo.py (pipeline)             ── núcleo puro
-        │  normaliza → deduplica → aplica gates → aplica tetos → agrega
-        ├── regras.py   (uma função por RN: gates de validação + tetos + total_despesas)
-        ├── politica.py (constantes: limites, limiar NF, multiplicador viagem)
+   calculo.py (pipeline puro)                ── núcleo puro
+        │  estrutura → normaliza → categoria → limite>0 → CONVERSÃO →
+        │  dedup → período → valor → NF(convertido) → teto(baldes) → agrega
+        ├── regras.py   (uma função por RN; gates, conversão, taxa, tetos, agregação)
+        ├── politica.py (dict → Politica/Cambio; resolução de CC; constantes)
         └── modelo.py   (dataclasses + enums)
-        │  Resultado
+        │  Resultado (sem em_viagem)
         ▼
-   io_json.py → resultado.json
+   io_json.py → resultado.json (2 casas, ensure_ascii=False, ordem determinística)
 ```
 
-**Fronteiras:** `calculo.py` + `regras.py` + `politica.py` + `modelo.py` não
-importam nada de I/O e não conhecem arquivos nem `argparse` — recebem estruturas
-e devolvem estruturas. Todo contato com o mundo (ler arquivo, `print`, exit code)
-mora em `cli.py` e `io_json.py`. Essa linha é o que faz as ~14 regras testáveis
-sem tocar em disco e resistentes a troca de formato de entrada.
+**Fronteiras:** `calculo.py`, `regras.py`, `politica.py`, `modelo.py` não importam I/O e
+não conhecem caminhos de arquivo — recebem `Politica`/`Cambio` já construídos. Todo
+contato com o mundo (abrir os 3 arquivos, `print`, exit code) mora em `cli.py`/`io_json.py`.
 
-**Estrutura de pastas:**
+**Estrutura de pastas (inalterada; conteúdo dos módulos muda):**
 
 ```
 src/
   __init__.py
   __main__.py     # python -m src ... (dev)
-  cli.py          # argparse, main() → comando `calcular`; exit codes
-  io_json.py      # leitura (parse_float=Decimal) + validação estrutural + serialização (ensure_ascii=False)
-  modelo.py       # dataclasses: Despesa, Reprovacao, ResultadoCategoria, Resultado; enums Categoria, Motivo
-  politica.py     # constantes de política (Seção 4)
-  regras.py       # FUNÇÕES DE REGRA DE NEGÓCIO — arquivo próprio (requisito do usuário)
-  calculo.py      # pipeline puro que orquestra regras.py
+  cli.py          # argparse (SEM --em-viagem); resolve caminhos de política/câmbio; exit codes
+  io_json.py      # ler_entrada / ler_politica / ler_cambio + serialização
+  modelo.py       # dataclasses: Despesa, CategoriaConfig, Politica, Cambio, Reprovacao, ResultadoCategoria, Resultado; enum Motivo
+  politica.py     # politica_de_dict / cambio_de_dict (dict→estrutura, puro); CASAS_DECIMAIS
+  regras.py       # UMA FUNÇÃO POR RN (RN-001..RN-020)
+  calculo.py      # pipeline puro na ordem da Seção 8
+  informacoes_externas/
+    politica-v4.json
+    cambio.json
 tests/
-  test_regras.py       # 1 teste por RN
-  test_calculo.py      # tetos, agregação, dedup, ordem
-  test_bordas.py       # casos da Seção 7 da spec
-  test_integracao.py   # golden: exemplos/despesas-exemplo.json → saída da Seção 4
-  test_cli.py          # flags, arquivos, --em-viagem, exit codes
-pyproject.toml         # metadados + console_script `calcular` + config do pytest
+  test_regras.py       # 1 teste por RN (RN-001..RN-020)
+  test_calculo.py      # dedup/ordem/tetos/baldes/agregação
+  test_bordas.py       # casos da Seção 7
+  test_cambio.py       # RN-018/019/020: conversão, data mais próxima, empate, não identificado
+  test_politica.py     # RN-015: resolução de CC, padrão, conjunto dinâmico
+  test_integracao.py   # goldens: despesas-exemplo.json e despesas-envelope.json
+  test_cobertura_rn.py # auditoria: nenhuma RN sem teste
+  test_cli.py          # flags, arquivos, exit codes, abort de câmbio
+  test_io.py           # serialização (2 casas, acentos, ordem)
+pyproject.toml
 ```
 
 ## 3. Modelo de dados
 
-Detalhe completo em [`data-model.md`](./data-model.md). Resumo:
+Detalhe em [`data-model.md`](./data-model.md). Mudanças-chave:
 
-- **`Despesa`** (entrada normalizada): `id`, `data: date`, `categoria: str`,
-  `categoria_norm: str` (trim + lower), `descricao`, `fornecedor`,
-  `valor: Decimal` (já em 2 casas), `tem_nota_fiscal: bool`.
-- **`Reprovacao`**: `id`, `motivo: Motivo`, e opcional `categoria_informada`
-  (usado só em `reprovadas_sem_categoria`).
-- **`ResultadoCategoria`**: `total_despesas`, `total_aceito`, `total_reembolso`
-  (todos `Decimal`), `reprovadas: list[Reprovacao]`.
-- **`Resultado`**: `colaborador`, `competencia`, `periodo`, `em_viagem`,
-  `categorias: dict[str, ResultadoCategoria]`, `reprovadas_sem_categoria`,
-  `total_reembolso_geral`.
-- **`Motivo`** (enum, texto exato da spec): `categoria não aplicável`,
-  `data fora da competência`, `registro duplicado`, `sem nota fiscal obrigatória`,
-  `valor inválido`, `registro inválido`.
+- **`Despesa`** ganha câmbio e viagem: `moeda_norm: str | None` (trim+upper; `None` =
+  sem moeda), `valor_origem: Decimal` (2 casas, na moeda de origem), `valor_base:
+  Decimal | None` (convertido; `None` até a conversão / se "cambio não identificado"),
+  `em_viagem: bool`. A `categoria_norm` continua trim+lower.
+- **`CategoriaConfig`**: `limite: Decimal`, `periodicidade: str` (`"dia"`/`"diaria"`),
+  `observacao: str | None`.
+- **`Politica`**: `padrao: dict[str, CategoriaConfig]`, `centros_custo: dict[str,
+  dict[str, CategoriaConfig]]`, `limiar_nf: Decimal`, `acrescimo_viagem_pct: Decimal`.
+- **`Cambio`**: `moeda_base: str` (normalizada), `taxas: dict[date, dict[str, Decimal]]`.
+- **`Resultado`**: **remove** `em_viagem`; `categorias` é `dict[str, ResultadoCategoria]`
+  na ordem determinística (Seção 5, DT-011).
+- **`Motivo`**: acrescenta `CAMBIO_NAO_IDENTIFICADO = "cambio não identificado"`. O enum
+  `Categoria` (trio fixo) é **removido** — não há mais categoria conhecida em código.
 
-A justificativa da recusa é carregada pelo próprio `Motivo` na `Reprovacao`; uma
-despesa aceita não gera `Reprovacao` e contribui para os três totais.
+## 4. Como as fontes externas são representadas
 
-## 4. Como a política é representada
+Ambas viram estruturas puras construídas na casca e passadas ao núcleo:
 
-Os limites vivem como **constantes nomeadas** em `src/politica.py`, não em arquivo
-de configuração externo:
-
-```
-LIMITES_DIARIOS        = {"alimentacao": Decimal("60"), "transporte_urbano": Decimal("80")}
-LIMITE_HOSPEDAGEM      = Decimal("250")   # por registro (RN-004 / AMB-006)
-LIMIAR_NOTA_FISCAL     = Decimal("100")   # NF exigida se valor > este limiar (RN-006)
-MULTIPLICADOR_VIAGEM   = Decimal("1.5")   # aplica-se só aos tetos (RN-009)
-CATEGORIAS_VALIDAS     = {"alimentacao", "transporte_urbano", "hospedagem"}
-CASAS_DECIMAIS         = Decimal("0.01")
-```
-
-**Por quê constantes e não config externa:** a política muda raramente, é versionada
-junto do código e cada valor é parte da regra testada. Um módulo único dá um ponto
-de mudança sem overhead de I/O ou de validar um arquivo de config. **Trade-off:**
-mudar a política exige alterar o código e re-deploy — aceitável para uma política
-que muda em ciclos de meses (é "v3"). Se um dia a política precisar mudar sem
-deploy, este é o único ponto a externalizar.
+- `io_json.ler_politica(caminho) -> Politica` e `io_json.ler_cambio(caminho) -> Cambio`
+  abrem o arquivo (uma vez), leem com `parse_float=Decimal` e delegam a
+  `politica.politica_de_dict` / `politica.cambio_de_dict` (puros: dict → dataclass).
+- **Localização:** por padrão os arquivos empacotados em
+  `src/informacoes_externas/{politica-v4.json,cambio.json}`, resolvidos relativos ao
+  pacote; sobrescrevíveis por `--politica`/`--cambio` (contrato em
+  [`contracts/cli-contract.md`](./contracts/cli-contract.md)).
+- **Abort:** input, política ou câmbio ausente/inparseável → `ErroEntrada` → `stderr` +
+  exit 1 (RN-013 para o input; RN-018 para o câmbio; mesma classe para a política).
+- **`moeda_base`:** sempre a do `cambio.json`; a `moeda_base` de `politica-v4.json` é
+  ignorada (RN-018).
 
 ## 5. Decisões técnicas
 
-### DT-001 — Dinheiro em `Decimal`, lido como `Decimal` desde o JSON
-**Contexto:** RN-011 exige 2 casas e arredondamento half-up; há valor com 3 casas (`33.333`) e somas que precisam bater centavo a centavo no teste golden.
-**Decisão:** todo valor é `Decimal`. O JSON é lido com `parse_float=Decimal`; cada valor recebe `quantize(CASAS_DECIMAIS, ROUND_HALF_UP)` na normalização; a saída é serializada com 2 casas.
-**Alternativa descartada:** `float` — erro de ponto flutuante em dinheiro; e `Decimal(str(float))` depois de já ter perdido precisão.
-**Consequência:** fácil: aritmética exata e testes determinísticos. Difícil: é preciso um encoder JSON que saiba serializar `Decimal` com 2 casas.
+Mantidas de 1.1: **DT-001** (dinheiro em `Decimal` desde o JSON), **DT-002** (regra em
+`regras.py`, uma função por RN), **DT-003** (CLI `argparse`, comando `calcular`),
+**DT-004** (pipeline explícito na ordem da Seção 8), **DT-005** (só stdlib no runtime),
+**DT-006** (erro de topo aborta; registro malformado é recusa individual),
+**DT-007** (`total_despesas` exclui `valor ≤ 0`). Novas/alteradas:
 
-### DT-002 — Regras de negócio isoladas em `regras.py`, como funções puras
-**Contexto:** requisito do usuário — funções de validação de regra separadas, bem declaradas, em arquivo próprio.
-**Decisão:** `regras.py` concentra uma função por regra, nomeada e documentada com o `RN-NNN`: gates de validação com assinatura `def valida_<x>(despesa, contexto) -> Reprovacao | None` (retornam o motivo ou `None` se passa) e as funções de cálculo de teto/`total_despesas`. `calculo.py` só orquestra.
-**Alternativa descartada:** regras espalhadas dentro do pipeline em `calculo.py` — dificultaria o mapeamento 1:1 com a spec e a rastreabilidade nos testes.
-**Consequência:** fácil: cada RN vira um teste unitário direto; a spec e o código ficam rastreáveis. Difícil: exige disciplina para não vazar regra para `calculo.py`.
+### DT-003b — CLI sem `--em-viagem`; caminhos de política/câmbio opcionais
+**Contexto:** viagem virou por-registro (RN-009); o motor precisa de dois arquivos externos.
+**Decisão:** remover `--em-viagem`. Manter `--input`/`--output` obrigatórios e adicionar
+`--politica`/`--cambio` opcionais (default: arquivos empacotados). Sem regra de negócio na CLI.
+**Consequência:** a assinatura de `CLAUDE.md` (`[--em-viagem]`) fica desatualizada; sinalizar
+para atualizar `CLAUDE.md`.
 
-### DT-003 — CLI com `argparse`, comando único `calcular`
-**Contexto:** invocação fixada pelo usuário: `calcular --input despesas.json --output resultado.json [--em-viagem]`.
-**Decisão:** `argparse` com `--input` (obrigatório), `--output` (obrigatório) e `--em-viagem` (flag booleana `store_true`, default `False`). Exposto como `console_scripts` (`calcular = src.cli:main`) no `pyproject.toml`; em dev, `python -m src ...`. Contrato completo em [`contracts/cli-contract.md`](./contracts/cli-contract.md).
-**Alternativa descartada:** `click`/`typer` — dependência externa desnecessária para 3 argumentos.
-**Consequência:** fácil: sem dependências; `--em-viagem` mapeia direto para RN-009. Difícil: `argparse` dá menos açúcar para subcomandos futuros (não é necessário agora).
+### DT-008 — Política e câmbio como dados injetados, não constantes
+**Contexto:** RN-015/018 externalizam política e câmbio; o núcleo deve permanecer puro.
+**Decisão:** `politica.py` deixa de ter constantes de limite; passa a converter dict→`Politica`/`Cambio`
+e a resolver o centro de custo (`conjunto_do_centro(politica, cc)` → `padrao` se ausente, RN-015).
+Toda leitura de arquivo fica em `io_json.py`.
+**Alternativa descartada:** ler os arquivos dentro do núcleo — violaria a fronteira de I/O.
+**Consequência:** troca de política/câmbio não exige recompilar regra; o núcleo é testável com
+`Politica`/`Cambio` montados em memória.
 
-### DT-004 — Pipeline explícito seguindo a ordem da Seção 8 da spec
-**Contexto:** RN/AMB-010 fixam a ordem de aplicação e o "primeiro gate que falha define o motivo".
-**Decisão:** `calculo.py` executa os passos na ordem exata da Seção 8: validação estrutural → normalização → deduplicação (mantém 1ª ocorrência) → gates (categoria → período → valor → NF) → tetos → agregação. Cada despesa aceita entra em `total_aceito`/`total_despesas`; cada recusa registra o motivo do primeiro gate.
-**Alternativa descartada:** avaliar todos os gates e escolher motivo por prioridade — mais código e mesmo resultado.
-**Consequência:** fácil: determinístico e auditável, espelha a spec. Difícil: a ordem é acoplada à spec — mudou a spec, muda o pipeline (correto).
+### DT-009 — Teto dirigido por periodicidade, sobre conjunto dinâmico
+**Contexto:** RN-002/003/004/016 — nenhuma categoria privilegiada; duas mecânicas.
+**Decisão:** `regras.py` expõe `aplica_teto_dia(aceitas, limite, fator_por_registro)` (baldes por
+status de viagem) e `aplica_teto_diaria(aceitas, limite)`; `calculo.py` escolhe pela
+`periodicidade` da `CategoriaConfig`. Sem `ORDEM_CATEGORIAS` fixo nem `hospedagem` hardcoded.
+**Consequência:** categoria nova na política é reembolsada sem tocar código (RN-004).
 
-### DT-005 — Sem dependências de runtime (stdlib apenas)
-**Contexto:** o problema é resolvível 100% com a biblioteca padrão.
-**Decisão:** runtime usa só stdlib; `pytest` é dependência apenas de desenvolvimento.
-**Consequência:** fácil: instalação e reprodução triviais. Difícil: nenhuma relevante.
+### DT-010 — Conversão de câmbio e resolução de taxa por data
+**Contexto:** RN-018/019/AMB-017/018.
+**Decisão:** `regras.taxa_por_data(cambio, moeda, data) -> Decimal | None` percorre as datas de
+`taxas` que contêm a moeda, escolhe a de **menor distância** absoluta em dias e, em empate,
+a **menor** taxa; devolve `None` se a moeda não existe em nenhuma data (→ RN-020).
+`regras.converte(valor_origem, taxa)` faz `quantize(valor)·taxa` e `quantize` do resultado
+(AMB-018). A `moeda` é normalizada trim+upper (Clarify 2026-07-31) antes de comparar com
+`moeda_base` e com as chaves de `taxas`.
+**Consequência:** determinístico; datas de fim de semana caem na cotação mais próxima.
 
-### DT-006 — Tratamento de erro e códigos de saída
-**Contexto:** RN-013 — registro malformado é recusado individualmente; JSON de topo inválido aborta.
-**Decisão:** registro malformado vira `Reprovacao("registro inválido")` em `reprovadas_sem_categoria`. Erros de topo (JSON inparseável, arquivo de entrada inexistente, campos de topo ausentes) escrevem mensagem em `stderr` e saem com código ≠ 0 (sucesso = 0). Códigos detalhados no contrato da CLI.
-**Consequência:** fácil: lote resiliente + falha clara para erro irrecuperável. Difícil: exige distinguir erro estrutural de registro vs. erro de topo.
+### DT-011 — Ordem determinística das categorias na saída
+**Contexto:** categorias agora são dinâmicas; a saída precisa ser determinística (Seção 9 da spec).
+**Decisão:** o bloco `categorias` segue a **ordem das chaves do conjunto do centro de custo
+resolvido** na política (ex.: `CC-ENG-PLATAFORMA` → alimentacao, transporte_urbano, hospedagem;
+`CC-COMERCIAL` → alimentacao, transporte_urbano, hospedagem, representacao), emitindo só as que têm
+≥1 despesa (AMB-015). `reprovadas_sem_categoria` segue a ordem do input.
+**Alternativa descartada:** ordem de 1ª aparição no input — igual nos goldens atuais, mas acopla a
+ordem da saída à ordem de digitação; a ordem da política é mais estável.
 
-### DT-007 — `total_despesas` exclui valores ≤ 0 (exclusão por valor)
-**Contexto:** RN-014 revista em D-004 — `total_despesas` soma o `valor` das despesas de categoria válida (aceitas + reprovadas), **exceto** as com `valor ≤ 0`; a exclusão é **por valor, não pelo motivo da recusa** (Clarifications 2026-07-30, opção A).
-**Decisão:** a função de agregação em `regras.py` que compõe `total_despesas` filtra `despesa.valor > 0` antes de acumular, independentemente de a despesa ter sido aceita ou recusada e de qual gate a recusou (duplicidade/período/NF/valor). Como a normalização arredonda antes (RN-011), o teste `> 0` usa o `Decimal` já `quantize`ado.
-**Alternativa descartada:** excluir apenas as recusadas com motivo "valor inválido" (exclusão por motivo) — diverge da opção A para o caso raro de uma despesa negativa recusada antes do gate de valor (ex.: duplicata negativa).
-**Consequência:** no exemplo, `transporte_urbano.total_despesas` passa de 155,01 para **200,01** (o estorno `d-009`, −45,00, sai da somatória; segue recusado como "valor inválido" e listado em `reprovadas`). A invariante `total_despesas ≥ total_aceito ≥ total_reembolso` continua válida (fica mais folgada).
+### DT-012 — Pipeline reordenado com passo de conversão
+**Contexto:** Seção 8 da spec 1.4.
+**Decisão:** ordem exata: estrutura(RN-013) → resolução política+câmbio(RN-015/018) →
+normalização(RN-011/001, moeda+viagem) → categoria válida(RN-001) → limite>0(RN-017) →
+**conversão(RN-018/019, falha→RN-020)** → dedup(RN-008, chave inclui moeda) → período(RN-007) →
+valor>0(RN-010) → NF sobre valor convertido(RN-006) → teto(RN-002/003/004/005/009/016, baldes) →
+agregação(RN-012/014). Conversão **antes** de dedup/período/valor/NF garante `valor_base` para
+todo reprovado que compõe `total_despesas`; "cambio não identificado" não tem `valor_base` e é
+excluído de `total_despesas` (AMB-017), como os `valor ≤ 0`.
 
 ## 6. Estratégia de testes
 
-- **Nível:** predominantemente unitário sobre `regras.py` (cada RN isolada), mais
-  testes de `calculo.py` (dedup/ordem/tetos/agregação) e um punhado de integração
-  ponta a ponta pela CLI. Proporção alvo ≈ 75% unitário / 15% integração de núcleo
-  / 10% CLI.
-- **Cada `RN-NNN` tem teste?** Sim, por convenção de nome: `test_rn_001_*`,
-  `test_rn_002_*`, … `test_rn_014_*` em `test_regras.py`/`test_calculo.py`. Um
-  teste de auditoria (`test_cobertura_rn`) garante que não falta RN.
-- **Casos de borda da Seção 7:** cada linha da tabela vira um teste em
-  `test_bordas.py`, nomeado pelo `id` do exemplo (`test_borda_d004_sem_nf`, …).
-- **Golden test:** `test_integracao.py` roda `exemplos/despesas-exemplo.json` (com
-  e sem `--em-viagem`) e compara com a saída da Seção 4 da spec, incluindo a
-  invariante `total_despesas ≥ total_aceito ≥ total_reembolso` e
-  `total_reembolso_geral == 585.43`.
-- **Nomenclatura:** o nome do teste cita o `RN`/caso de borda, fechando a
-  rastreabilidade spec ↔ teste ↔ correção. Ver [`quickstart.md`](./quickstart.md).
+- **Nível:** unitário sobre `regras.py` (cada RN isolada) + `calculo.py`
+  (dedup/ordem/tetos/baldes/agregação) + `test_cambio.py`/`test_politica.py` para as
+  regras externas + integração ponta a ponta pela CLI. ≈70% unitário / 20% integração de
+  núcleo / 10% CLII/IO.
+- **Cobertura de RN:** `test_rn_001_*` … `test_rn_020_*`; `test_cobertura_rn` audita que
+  nenhuma RN-NNN fica sem teste (RN-001..RN-020).
+- **Bordas (Seção 7):** cada linha vira um teste em `test_bordas.py` (incl. moeda=base,
+  sem moeda, dia misto/baldes, fim de semana, empate, cambio não identificado, NF pós-conversão).
+- **Goldens (`test_integracao.py`):**
+  - `exemplos/despesas-exemplo.json` (`CC-ENG-PLATAFORMA`, sem `moeda`) →
+    `total_reembolso_geral == 351.43` (Seção 4 da spec; inalterado).
+  - `exemplos/despesas-envelope.json` (`CC-COMERCIAL`, com EUR/USD/GBP) →
+    `total_reembolso_geral == 1228.72` (valores completos em [`quickstart.md`](./quickstart.md)),
+    exercitando conversão, baldes, "cambio não identificado" e NF sobre valor convertido.
+  - Invariante `total_despesas ≥ total_aceito ≥ total_reembolso` em toda categoria.
+- **Determinismo:** mesmo input+política+câmbio → mesma saída; ordem de categorias por DT-011.
 
 ## 7. Riscos
 
-| Risco | Probabilidade | O que faço se acontecer |
+| Risco | Prob. | Mitigação |
 |---|---|---|
-| Ler valor como `float` antes de `Decimal` e perder precisão (`33.333`) | Média | `parse_float=Decimal` na leitura + teste específico de `d-011`; lint proibindo `float(` em valores |
-| Serializar `Decimal` quebra `json.dumps` | Alta (se esquecido) | Encoder custom/`default=` convertendo `Decimal`→número com 2 casas; teste golden pega |
-| Acentos nos motivos ("não", "inválido") saem escapados | Média | `json.dump(..., ensure_ascii=False)` + arquivo UTF-8; asserção no teste de integração |
-| Ordem de chaves/categorias não determinística quebra golden | Baixa | Ordem fixa de categorias e de chaves na serialização |
-| Stakeholder rejeita AMB-006 (hospedagem por registro ≠ "por diária" do RH) | Média | Decisão registrada em `DECISIONS.md`; troca isolada em `politica.py`/`regras.py` |
-| AMB-012 (`total_despesas` monetário vs. contagem) estar errada | Baixa/Média | Confirmar com usuário; troca isolada em `regras.py` + `data-model.md` |
-| `--em-viagem` interpretado por despesa em vez de por input | Baixa | RN-009 é por input inteiro; um único booleano de contexto no pipeline; teste de CLI |
+| Ler valor **ou taxa** como `float` e perder centavo | Média | `parse_float=Decimal` em input/câmbio; teste de `d-011` (33,333) e de conversões do envelope |
+| Arredondar na conversão em ordem errada (taxa arredondada, dupla) | Média | `converte()` isolada testada por RN-018/AMB-018; goldens do envelope pegam |
+| Ordem não determinística das categorias dinâmicas quebra golden | Média | DT-011 (ordem da política); `test_io`/golden asseguram |
+| Passo de conversão fora de posição quebra `total_despesas` ou motivo | Média | Ordem fixa DT-012; teste de precedência (cambio não id vs período/NF) |
+| `moeda`/`categoria` não normalizadas recusam despesas legítimas | Média | normalização trim+upper/lower; testes de `" usd "`, `ALIMENTACAO` |
+| Câmbio/política ausente tratado como recusa em vez de abort | Baixa | `ErroEntrada` + exit 1; `test_cli` cobre arquivo faltando |
+| Stakeholder rejeita AMB-006/016/017 | Baixa/Média | Decisões em `DECISIONS.md`; trocas isoladas em `regras.py` |
+| `CLAUDE.md` cita `--em-viagem` (agora removido) | Alta | Atualizar `CLAUDE.md` na implementação (DT-003b) |
