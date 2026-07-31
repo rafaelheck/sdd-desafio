@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "motor-reembolso"
+version = "1.0.0"
+description = "Motor de calculo de reembolso de despesas corporativas (CLI)"
+requires-python = ">=3.13"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+calcular = "src.cli:main"
+
+[tool.setuptools]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

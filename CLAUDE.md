@@ -34,16 +34,27 @@ Se o que eu pedi não está coberto por nenhuma task, me avise em vez de impleme
 
 ## Stack e comandos
 
-- Linguagem: `<...>`
-- Rodar: `<comando>`
-- Testes: `<comando>`
-- Lint/format: `<comando>`
+- Linguagem: Python 3.13 (somente stdlib em runtime; sem dependências externas)
+- Rodar: `calcular --input despesas.json --output resultado.json [--em-viagem]`
+  (em dev, sem instalar: `python -m src --input ... --output ... [--em-viagem]`)
+- Instalar (dev): `pip install -e ".[dev]"` (cria o comando `calcular` e instala `pytest`)
+- Testes: `pytest`
+- Lint/format: não há ferramenta configurada; siga PEP 8
 
 ## Convenções de código
 
-- `<nomenclatura, estrutura de pastas, tratamento de erro, o que for relevante>`
-- Valores monetários: `<como são representados — decimal, centavos em inteiro, etc.>`
+- Núcleo puro (`calculo.py`, `regras.py`, `politica.py`, `modelo.py`) não faz I/O;
+  toda leitura/escrita/exit code vive em `cli.py` e `io_json.py`.
+- Uma função por regra em `src/regras.py`, documentada com o `RN-NNN`.
+- Cada regra tem teste nomeado pelo `RN` (`test_rn_0NN_*`); um teste de auditoria
+  garante que nenhuma RN fica sem cobertura.
+- Valores monetários: `decimal.Decimal` sempre, com 2 casas via
+  `quantize(Decimal("0.01"), ROUND_HALF_UP)`. O JSON é lido com
+  `parse_float=Decimal` — valores nunca passam por `float`.
 
 ## Fora de escopo
 
-- `<o que este projeto explicitamente não faz — evita que o agente invente feature>`
+- Sem estornos, créditos ou saldos negativos; reembolso é sempre ≥ 0.
+- Não valida autenticidade de nota fiscal (confia em `tem_nota_fiscal`).
+- Sem conversão de moeda (tudo em BRL) e sem regra de calendário (dia útil/feriado).
+- Não persiste dados nem expõe interface além de ler um input e emitir um output.
